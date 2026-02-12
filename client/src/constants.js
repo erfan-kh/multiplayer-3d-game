@@ -1,0 +1,10 @@
+// constants.js
+
+export const GAME_SETTINGS = {
+  SPEED: 0.05,
+  GRAVITY: 0.005,
+  JUMP_FORCE: 0.15,
+  GROUND_Y: 0.042,
+  SCALE_WHEN_FACING_CAMERA: 1.1,
+  SCALE_DEFAULT: 1,
+};
