@@ -6,6 +6,8 @@ import { OrbitControls } from "@react-three/drei";
 
 import EditorScene from "./EditorScene";
 import CameraController from "./CameraController";
+import CarModel from "./CarModel"; // ✅ Import your car model
+import { useGLTF } from "@react-three/drei";
 
 export default function EditorCanvas(props) {
   const {
@@ -14,7 +16,23 @@ export default function EditorCanvas(props) {
     zoom,
     handlePointerUp,
     girlRef, // explicitly destructure girlRef
+
+    // ✅ Destructure vertical drag props
+    isVerticalDrag,
+    setIsVerticalDrag,
   } = props;
+
+  function GLTFObject({ object }) {
+    const { scene } = useGLTF(object.modelPath);
+    return (
+      <primitive
+        object={scene}
+        position={object.position}
+        rotation={object.rotation}
+        scale={object.size}
+      />
+    );
+  }
 
   return (
     <Canvas
@@ -26,7 +44,12 @@ export default function EditorCanvas(props) {
       <ambientLight intensity={0.7} />
       <directionalLight position={[5, 5, 5]} intensity={0.8} />
 
-      <EditorScene {...props} />
+      {/* Your existing scene */}
+      <EditorScene
+        {...props}
+        isVerticalDrag={isVerticalDrag}
+        setIsVerticalDrag={setIsVerticalDrag}
+      />
 
       {cameraMode === "orbit" && (
         <OrbitControls

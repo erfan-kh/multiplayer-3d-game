@@ -1,0 +1,11 @@
+Model Information:
+* title:	McLaren F1 GTR Longtail | www.vecarz.com
+* source:	https://sketchfab.com/3d-models/mclaren-f1-gtr-longtail-wwwvecarzcom-a6dbc062d2e843828c392bbd07727ead
+* author:	vecarz (https://sketchfab.com/heynic)
+
+Model License:
+* license type:	CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/)
+* requirements:	Author must be credited. No commercial use. Modified versions must have the same license.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "McLaren F1 GTR Longtail | www.vecarz.com" (https://sketchfab.com/3d-models/mclaren-f1-gtr-longtail-wwwvecarzcom-a6dbc062d2e843828c392bbd07727ead) by vecarz (https://sketchfab.com/heynic) licensed under CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/)

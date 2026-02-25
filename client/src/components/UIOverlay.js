@@ -1,7 +1,17 @@
 // components/UIOverlay.js
-import React from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+
 import MapEditorPanel from "./MapEditorPanel";
 import Joystick from "./Joystick";
+import LivePreview from "./LivePreview";
+import API_BASE_URL from "../config";
+
+
+import { io } from "socket.io-client";
+
+const socket = io("http://192.168.1.106:5000"); // Replace with your backend IP
+
+
 
 export default function UIOverlay({
   isPanelOpen,
@@ -46,8 +56,230 @@ export default function UIOverlay({
   setGravity,
   jumpForce,
   setJumpForce,
+
+  snappingEnabled,
+  setSnappingEnabled,
+
+  isVerticalDrag,
 }) {
+  const [savedObjects, setSavedObjects] = useState({
+    walls: [],
+    floors: [],
+    furniture: [],
+    custom: [],
+    car: [], // ✅ New category for GLTF objects
+  });
+
+  const [objectName, setObjectName] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("walls");
+  const [loadedObject, setLoadedObject] = useState(null);
+
+  const [modelPath, setModelPath] = useState("");
+
+  const [uploadedFile, setUploadedFile] = useState(null);
+
+
+
+const fetchObjects = useCallback(async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/objects`);
+    const data = await res.json();
+
+    const grouped = {
+      walls: [],
+      floors: [],
+      furniture: [],
+      custom: [],
+      car: [],
+    };
+
+    data.forEach((obj) => {
+      if (grouped[obj.category]) {
+        grouped[obj.category].push(obj);
+      }
+    });
+
+    // Always create a new object reference
+    setSavedObjects({ ...grouped });
+  } catch (err) {
+    console.error("Failed to load saved objects:", err);
+  }
+}, []);
+
+
+
+
+useEffect(() => {
+  const handleChange = (change) => {
+    console.log("🔄 Real-time update received:", change);
+    fetchObjects();
+  };
+
+  socket.on("objectChange", handleChange);
+
+  return () => {
+    socket.off("objectChange", handleChange);
+  };
+}, [fetchObjects]);
+
+
+
+
+  useEffect(() => {
+    fetchObjects();
+  }, []);
+
+  const loadObject = (obj) => {
+    setObjectType(obj.type);
+    setSize(obj.size);
+    setPosition(obj.position);
+    setRotation(obj.rotation);
+    setColor(obj.color);
+    setSnapSize(obj.snapSize);
+    setIsCreatingObject(true);
+    setLoadedObject(obj);
+    setObjectName(obj.name);
+    setSelectedCategory(obj.category);
+    setModelPath(obj.modelPath || ""); // ✅ Load model path
+  };
+
+
+const setSnapRef = useRef(setSnappingEnabled);
+useEffect(() => {
+  setSnapRef.current = setSnappingEnabled;
+}, [setSnappingEnabled]);
+
+
+
+useEffect(() => {
+  const handleKeyDown = (e) => {
+    if (e.key.toLowerCase() === "s") {
+      if (typeof setSnapRef.current === "function") {
+        setSnapRef.current((prev) => !prev);
+      }
+    }
+  };
+  window.addEventListener("keydown", handleKeyDown);
+  return () => window.removeEventListener("keydown", handleKeyDown);
+}, []);
+
+
+
+const handleSaveObject = async () => {
+  if (!objectName.trim()) return;
+
+  const isGLTF = objectType === "gltf" || objectType === "car";
+
+  const newObject = {
+    name: objectName.trim(),
+    type: objectType,
+    category: selectedCategory,
+    modelPath: isGLTF ? modelPath : null,
+    size,
+    position,
+    rotation,
+    color,
+    snapSize,
+    createdAt: new Date().toISOString(),
+  };
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/objects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newObject),
+    });
+
+    if (res.ok) {
+      const saved = await res.json();
+      console.log("Saved to DB:", saved);
+
+
+
+      fetchObjects(); // ✅ Refresh from server
+      setObjectName("");
+      setModelPath("");
+    } else {
+      alert("Failed to save object.");
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Error saving object.");
+  }
+};
+
+
+  const handleUpdateObject = async () => {
+    if (!loadedObject) return;
+
+    const updatedObject = {
+      name: objectName,
+      category: selectedCategory,
+      type: objectType,
+      size,
+      position,
+      rotation,
+      color,
+      snapSize,
+    };
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/objects/${loadedObject._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedObject),
+      });
+
+      if (res.ok) {
+        await fetchObjects();
+
+        setObjectName("");
+        setObjectType("wall");
+        setSize([1, 1, 1]);
+        setPosition([0, 0, 0]);
+        setRotation([0, 0, 0]);
+        setColor("#ffffff");
+        setSnapSize(0.5);
+        setIsCreatingObject(false);
+        setLoadedObject(null);
+
+        alert("✅ Object updated!");
+      } else {
+        alert("Failed to update object.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error updating object.");
+    }
+  };
+
+  const handleDeleteLoadedObject = async (id) => {
+    const confirm = window.confirm("Are you sure you want to delete this object?");
+    if (!confirm) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/objects/${id}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+
+        fetchObjects(); // ✅ Refresh from server
+
+        setLoadedObject(null);
+        setIsCreatingObject(false);
+      } else {
+        alert("Failed to delete object.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error deleting object.");
+    }
+  };
+
+
   return (
+    
     <div className="ui">
       <MapEditorPanel />
 
@@ -106,7 +338,9 @@ export default function UIOverlay({
             </div>
           )}
 
+
           <div className="object-creator-toggle">
+            
             <button
               className="btn create"
               onClick={() => setIsCreatingObject((prev) => !prev)}
@@ -126,15 +360,18 @@ export default function UIOverlay({
           {isCreatingObject && (
             <div className="object-creator-panel">
               <label>
-                Object Type:
-                <select value={objectType} onChange={(e) => setObjectType(e.target.value)}>
-                  <option value="wall">Wall</option>
-                  <option value="floor">Floor</option>
-                  <option value="table">Table</option>
-                  <option value="window">Window</option>
-                  <option value="road">Road</option>
-                </select>
-              </label>
+              Object Type:
+              <select value={objectType} onChange={(e) => setObjectType(e.target.value)}>
+                <option value="wall">Wall</option>
+                <option value="floor">Floor</option>
+                <option value="table">Table</option>
+                <option value="window">Window</option>
+                <option value="road">Road</option>
+                <option value="gltf">GLTF Model</option> {/* ✅ Add this */}
+                <option value="car">Car (GLTF)</option>   {/* ✅ Optional alias */}
+              </select>
+            </label>
+
 
               <label>
                 Width:
@@ -277,6 +514,117 @@ export default function UIOverlay({
                 />
               </label>
 
+               <div className="object-creator-section">
+              <h5>Save Object</h5>
+
+              <label>
+                Name:
+                <input
+                  type="text"
+                  placeholder="e.g. Tall Wall"
+                  value={objectName}
+                  onChange={(e) => setObjectName(e.target.value)}
+                />
+              </label>
+
+              <label>
+                Category:
+                <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}>
+                  <option value="walls">Walls</option>
+                  <option value="floors">Floors</option>
+                  <option value="furniture">Furniture</option>
+                  <option value="car">Car (GLTF)</option> {/* ✅ New type */}
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+
+
+
+
+
+
+
+
+              <button className="btn save" onClick={handleSaveObject}>
+                💾 Save Object
+              </button>
+
+                  {loadedObject && (
+                    <button className="btn update" onClick={handleUpdateObject}>
+                      🔄 Update Object
+                    </button>
+                  )}
+
+              {loadedObject && (
+                <button
+                  className="btn delete"
+                  onClick={() => handleDeleteLoadedObject(loadedObject._id)}
+                  style={{ backgroundColor: "#ff4d4d", marginTop: "10px" }}
+                >
+                  ❌ Delete This Object
+                </button>
+              )}
+
+
+
+
+            </div>
+                  
+
+                  {Object.entries(savedObjects).map(([category, objects]) => (
+  <div key={category} className="saved-category">
+    <h5>{category.toUpperCase()}</h5>
+    {objects.length === 0 ? (
+      <p style={{ fontSize: "12px", color: "#c55d5d" }}>No saved objects</p>
+    ) : (
+      objects.map((obj, i) => (
+        <button
+          key={i}
+          className="btn"
+          onClick={() => loadObject(obj)}
+          style={{ marginBottom: "6px" }}
+        >
+          📦 {obj.name}
+        </button>
+      ))
+    )}
+  </div>
+))}
+
+              
+
+             {/* 🔍 Add the preview here */}
+             <div>
+              
+<LivePreview
+  size={size}
+  color={color}
+  rotation={rotation}
+/>
+
+
+
+{isVerticalDrag && (
+  <div style={{
+    position: "absolute",
+    top: 50,
+    left: 10,
+    background: "rgba(0,0,0,0.7)",
+    color: "white",
+    padding: "4px 8px",
+    borderRadius: "4px",
+    zIndex: 1000,
+    fontSize: "14px",
+    pointerEvents: "none"
+  }}>
+    Vertical Drag Mode (Shift)
+  </div>
+)}
+
+
+
+             </div>
+
               <button
                 className="btn draw"
                 onClick={() => setIsDrawing((prev) => !prev)}
@@ -284,8 +632,18 @@ export default function UIOverlay({
               >
                 {isDrawing ? "✅ Drawing (Tap to Cancel)" : "🎨 Start Drawing"}
               </button>
-            </div>
+
+              <button onClick={() => setSnappingEnabled((prev) => !prev)}>
+                {snappingEnabled ? "Disable Snapping (S)" : "Enable Snapping (S)"}
+              </button>
+            </div>    
+            
+
+            
           )}
+
+           
+
 
           <div className="camera-toggle">
             <button
@@ -299,17 +657,6 @@ export default function UIOverlay({
               🎥 Camera: {cameraMode}
             </button>
           </div>
-
-          <div className="snap-debug-toggle">
-            <button
-              className="btn debug"
-              onClick={() => setShowSnapPoints((prev) => !prev)}
-              style={{ backgroundColor: showSnapPoints ? "#ffa500" : undefined }}
-            >
-              {showSnapPoints ? "🟠 Hide Snap Points" : "🟠 Show Snap Points"}
-            </button>
-
-              </div>
     
               <div className="edit-map-toggle">
                 <button

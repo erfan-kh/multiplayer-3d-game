@@ -1,6 +1,7 @@
 // useSnapping.js
-import { useEffect, useState, useMemo } from "react";
-import { getWorldSnapPoints, findSnapTarget } from "../components/utils";
+
+import { useEffect, useState, useCallback } from "react";
+import * as THREE from "three";
 
 export default function useSnapping({
   placedObjects,
@@ -10,118 +11,124 @@ export default function useSnapping({
   setPosition,
   isDragging,
   setIsDragging,
+  snappingEnabled, // ✅ NEW
 }) {
-  const [snapCache, setSnapCache] = useState({});
   const [snapPreview, setSnapPreview] = useState(null);
-  const [activeSnapTarget, setActiveSnapTarget] = useState(null);
 
-  // Update snap cache when placedObjects change
-  useEffect(() => {
-    const newCache = {};
-    placedObjects.forEach((obj) => {
-      newCache[obj.id] = getWorldSnapPoints(obj);
-    });
-    setSnapCache(newCache);
-  }, [placedObjects]);
+  const getBoundingBox = (mesh) => {
+    return new THREE.Box3().setFromObject(mesh);
+  };
 
-  // Update snap preview while dragging
+  const findSnapTarget = (draggedObj) => {
+    const draggedBox = getBoundingBox(draggedObj.mesh);
+    const draggedSize = new THREE.Vector3();
+    draggedBox.getSize(draggedSize);
+
+    for (const obj of placedObjects) {
+      if (obj.id === draggedObj.id || !obj.mesh) continue;
+
+      const targetBox = getBoundingBox(obj.mesh);
+      const targetCenter = targetBox.getCenter(new THREE.Vector3());
+
+      const dx = position[0] - targetCenter.x;
+      const dz = position[2] - targetCenter.z;
+      const distance = Math.sqrt(dx * dx + dz * dz);
+      if (distance > 1.5 * Math.max(draggedSize.x, draggedSize.z)) continue;
+
+      // Get target's local axes in world space
+      const targetQuat = obj.mesh.getWorldQuaternion(new THREE.Quaternion());
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(targetQuat).normalize();
+      const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(targetQuat).normalize();
+
+      // Vector from target to dragged
+      const toDragged = new THREE.Vector3(dx, 0, dz).normalize();
+
+      // Determine closest axis
+      const dotRight = toDragged.dot(right);
+      const dotForward = toDragged.dot(forward);
+
+      let snapDirection;
+      if (Math.abs(dotRight) > Math.abs(dotForward)) {
+        snapDirection = dotRight > 0 ? right : right.clone().negate();
+      } else {
+        snapDirection = dotForward > 0 ? forward : forward.clone().negate();
+      }
+
+      // Get target size
+      const targetSize = new THREE.Vector3();
+      targetBox.getSize(targetSize);
+
+      // Project sizes onto the snap direction to get accurate half-extents
+      const draggedExtent = draggedSize.clone().multiply(new THREE.Vector3(
+        Math.abs(snapDirection.x),
+        0,
+        Math.abs(snapDirection.z)
+      )).length();
+
+      const targetExtent = targetSize.clone().multiply(new THREE.Vector3(
+        Math.abs(snapDirection.x),
+        0,
+        Math.abs(snapDirection.z)
+      )).length();
+
+      const offset = snapDirection.clone().multiplyScalar((draggedExtent + targetExtent) / 2);
+
+      const snapPos = [
+        targetCenter.x + offset.x,
+        position[1],
+        targetCenter.z + offset.z,
+      ];
+
+      return {
+        position: snapPos,
+        targetId: obj.id,
+      };
+    }
+
+    return null;
+  };
+
   useEffect(() => {
-    if (!isDragging || !selectedObjectId) {
+    if (!isDragging || !selectedObjectId || !snappingEnabled) {
       setSnapPreview(null);
-      setActiveSnapTarget(null);
       return;
     }
 
     const draggedObj = placedObjects.find((obj) => obj.id === selectedObjectId);
-    if (!draggedObj) return;
+    if (!draggedObj || !draggedObj.mesh) return;
 
-    const updatedDraggedObj = {
-      ...draggedObj,
-      position,
-    };
-
-    const snapTarget = findSnapTarget(updatedDraggedObj, snapCache);
-
-    if (
-      snapTarget &&
-      snapTarget.draggedSnapPoint &&
-      snapTarget.targetSnapPoint
-    ) {
-      const offset = snapTarget.draggedSnapPoint.rotatedOffset;
-
-      const push = [
-        snapTarget.direction[0] * (snapTarget.size[0] / 0.999),
-        snapTarget.direction[1] * (snapTarget.size[1] / 0.999),
-        snapTarget.direction[2] * (snapTarget.size[2] / 0.999),
-      ];
-
-      const previewPos = [
-        snapTarget.targetSnapPoint.position[0] - offset[0] + push[0],
-        snapTarget.targetSnapPoint.position[1] - offset[1] + push[1],
-        snapTarget.targetSnapPoint.position[2] - offset[2] + push[2],
-      ];
-
-      setSnapPreview(previewPos);
-      setActiveSnapTarget(snapTarget);
+    const snapTarget = findSnapTarget(draggedObj);
+    if (snapTarget) {
+      setSnapPreview(snapTarget.position);
     } else {
       setSnapPreview(null);
-      setActiveSnapTarget(null);
     }
-  }, [isDragging, selectedObjectId, position, placedObjects, snapCache]);
+  }, [isDragging, selectedObjectId, position, placedObjects, snappingEnabled]);
 
-  // Handle pointer up to finalize snapping
-  const handlePointerUp = () => {
+  const handlePointerUp = useCallback(() => {
     setIsDragging(false);
-    if (!selectedObjectId) return;
+    if (!selectedObjectId || !snappingEnabled) return;
 
     const draggedObj = placedObjects.find((obj) => obj.id === selectedObjectId);
-    if (!draggedObj) return;
+    if (!draggedObj || !draggedObj.mesh) return;
 
-    const updatedDraggedObj = {
-      ...draggedObj,
-      position,
-    };
-
-    const snapTarget = findSnapTarget(updatedDraggedObj, snapCache);
-
-    if (
-      snapTarget &&
-      snapTarget.draggedSnapPoint &&
-      snapTarget.targetSnapPoint
-    ) {
-      const offset = snapTarget.draggedSnapPoint.rotatedOffset;
-
-      const push = [
-        snapTarget.direction[0] * (snapTarget.size[0] / 0.999),
-        snapTarget.direction[1] * (snapTarget.size[1] / 0.999),
-        snapTarget.direction[2] * (snapTarget.size[2] / 0.999),
-      ];
-
-      const newPos = [
-        snapTarget.targetSnapPoint.position[0] - offset[0] + push[0],
-        snapTarget.targetSnapPoint.position[1] - offset[1] + push[1],
-        snapTarget.targetSnapPoint.position[2] - offset[2] + push[2],
-      ];
-
+    const snapTarget = findSnapTarget(draggedObj);
+    if (snapTarget) {
       setPlacedObjects((prev) =>
         prev.map((obj) =>
-          obj.id === draggedObj.id ? { ...obj, position: newPos } : obj
+          obj.id === draggedObj.id
+            ? { ...obj, position: snapTarget.position }
+            : obj
         )
       );
-
-      setPosition(newPos);
+      setPosition(snapTarget.position);
     }
 
     setSnapPreview(null);
-    setActiveSnapTarget(null);
-  };
+  }, [selectedObjectId, placedObjects, setPlacedObjects, setPosition, setIsDragging, snappingEnabled]);
 
   return {
     snapPreview,
-    activeSnapTarget,
-    setSnapPreview,
-    setActiveSnapTarget,
     handlePointerUp,
-    
   };
 }
