@@ -1,3 +1,5 @@
+// IT IS PART OF FUNCTIONALITY OF MAP EDITOR PANEL!
+
 import React, { createContext, useContext, useState } from "react";
 
 // Define available editor modes
@@ -17,15 +19,20 @@ export const useMapEditor = () => useContext(MapEditorContext);
 export const MapEditorProvider = ({ children }) => {
   const [mode, setMode] = useState(EditorModes.NONE);
   const [placedObjects, setPlacedObjects] = useState([]);
-  const [isPanelOpen, setIsPanelOpen] = useState(false); // NEW: panel visibility
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
 
+  // Add new object
   const addObject = (type, position) => {
-    setPlacedObjects((prev) => [
-      ...prev,
-      { id: Date.now(), type, position },
-    ]);
+    const newObject = {
+      id: Date.now() + Math.random(),
+      type,
+      position,
+    };
+
+    setPlacedObjects((prev) => [...prev, newObject]);
   };
 
+  // Remove object near a position
   const removeObjectAt = (position, radius = 0.5) => {
     setPlacedObjects((prev) =>
       prev.filter((obj) => {
@@ -38,16 +45,28 @@ export const MapEditorProvider = ({ children }) => {
     );
   };
 
+  // Load objects when opening a saved map
+  const loadObjects = (objects) => {
+    if (!objects || !Array.isArray(objects)) {
+      setPlacedObjects([]);
+      return;
+    }
+
+    setPlacedObjects(objects);
+  };
+
   return (
     <MapEditorContext.Provider
       value={{
         mode,
         setMode,
         placedObjects,
+        setPlacedObjects, // important so other components can update it
         addObject,
         removeObjectAt,
+        loadObjects,
         isPanelOpen,
-        setIsPanelOpen, // NEW: expose toggle
+        setIsPanelOpen,
       }}
     >
       {children}

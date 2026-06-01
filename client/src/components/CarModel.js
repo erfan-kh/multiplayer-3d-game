@@ -1,3 +1,5 @@
+//IT WAS A TEST MODEL TO IMPORT .GLTF FILE TO GAME
+
 // src/components/CarModel.js
 import React from "react";
 import { useGLTF } from "@react-three/drei";

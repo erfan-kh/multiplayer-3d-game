@@ -1,3 +1,5 @@
+// WE ARE MAKING JOYSTICH BEHAVIOR HERE FOR TOUCH SCREEN DEVICES!
+
 import React, { useRef, useImperativeHandle } from "react";
 import "./Joystick.css";
 

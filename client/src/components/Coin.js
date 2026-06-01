@@ -1,3 +1,5 @@
+//HRE IS WE ARE IMPORTING COINS FOR EXP IN THE GAME, WE HAVE TO DEVELOP THIS PART IN NEXT UPDATES!
+
 import React, { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 

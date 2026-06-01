@@ -6,22 +6,28 @@ export default function usePointerHandlers({
   isDragging,
   selectedObjectId,
   positionRef,
-  setPosition,
   snapSize,
   dragOffset,
   isVerticalDrag,
   lastPointerEvent,
+
+  // contains RigidBody refs now
+  objectRefs,
 }) {
   const frameRef = useRef(null);
+  const lastAppliedPosition = useRef(null);
+
+  // Mirror isDragging into a ref so callbacks always see fresh value
+  const isDraggingRef = useRef(isDragging);
+  isDraggingRef.current = isDragging;
 
   const handlePointerMove = useCallback(
     (e) => {
-      if (!isDragging || !selectedObjectId) return;
+      if (!isDraggingRef.current || !selectedObjectId) return;
 
-      // ✅ Store the latest pointer event for drag mode switching
       lastPointerEvent.current = e;
 
-      const [dx, dy, dz] = dragOffset.current;
+      const [dx, dy] = dragOffset.current;
       const [px, py, pz] = positionRef.current;
 
       let newX = px;
@@ -29,38 +35,84 @@ export default function usePointerHandlers({
       let newZ = pz;
 
       if (isVerticalDrag) {
-        // Create a vertical plane perpendicular to the camera's view direction
+        // Move vertically along camera facing plane
         const cameraDir = new THREE.Vector3();
         e.camera.getWorldDirection(cameraDir);
-        cameraDir.y = 0; // flatten to horizontal
+        cameraDir.y = 0;
         cameraDir.normalize();
 
-        const plane = new THREE.Plane(cameraDir, -new THREE.Vector3(px, 0, pz).dot(cameraDir));
+        const plane = new THREE.Plane(
+          cameraDir,
+          -new THREE.Vector3(px, 0, pz).dot(cameraDir)
+        );
+
         const intersection = new THREE.Vector3();
         e.ray.intersectPlane(plane, intersection);
 
         if (intersection) {
-          const y = intersection.y;
-          newY = snapSize > 0 ? Math.round((y - dy) / snapSize) * snapSize : y - dy;
+          newY = intersection.y - dy;
         }
       } else {
+        // Ground drag
         const { x, z } = e.point;
-        newX = snapSize > 0 ? Math.round((x - dx) / snapSize) * snapSize : x - dx;
-        newZ = snapSize > 0 ? Math.round((z - dz) / snapSize) * snapSize : z - dz;
+        newX = x - dx;
+        newZ = z - dragOffset.current[2];
       }
 
-      setPosition([newX, newY, newZ]);
+      // Snap
+      let newPosition = [newX, newY, newZ];
+      if (snapSize) {
+        newPosition = [
+          Math.round(newPosition[0] / snapSize) * snapSize,
+          newPosition[1],
+          Math.round(newPosition[2] / snapSize) * snapSize,
+        ];
+      }
 
-      console.log("Dragging:", isDragging);
-      console.log("Vertical mode:", isVerticalDrag);
-      console.log("New position:", [newX, newY, newZ]);
+      // Avoid redundant updates
+      const prev = lastAppliedPosition.current;
+
+      if (
+        !prev ||
+        prev[0] !== newPosition[0] ||
+        prev[1] !== newPosition[1] ||
+        prev[2] !== newPosition[2]
+      ) {
+        lastAppliedPosition.current = newPosition;
+
+        // store for end-of-drag commit
+        positionRef.current = newPosition;
+
+        // 🚀 NEW: Move the PHYSICS BODY, not the mesh
+        const rb = objectRefs?.current?.[selectedObjectId];
+
+        if (rb?.setTranslation) {
+          rb.setTranslation(
+            {
+              x: newPosition[0],
+              y: newPosition[1],
+              z: newPosition[2],
+            },
+            true // don't wake physics
+          );
+        }
+      }
     },
-    [isDragging, selectedObjectId, snapSize, dragOffset, isVerticalDrag, setPosition, positionRef, lastPointerEvent]
+    [
+      selectedObjectId,
+      dragOffset,
+      isVerticalDrag,
+      snapSize,
+      positionRef,
+      lastPointerEvent,
+      objectRefs,
+    ]
   );
 
   const throttledPointerMove = useCallback(
     (e) => {
-      if (frameRef.current) return;
+      if (frameRef.current !== null) return;
+
       frameRef.current = requestAnimationFrame(() => {
         frameRef.current = null;
         handlePointerMove(e);

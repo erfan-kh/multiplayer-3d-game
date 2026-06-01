@@ -1,3 +1,5 @@
+// HERE IS UI OF MAP EDITOR PANNEL!
+
 import React from "react";
 import { useMapEditor, EditorModes } from "../contexts/MapEditorContext";
 

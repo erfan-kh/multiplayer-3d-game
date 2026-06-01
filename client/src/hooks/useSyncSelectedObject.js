@@ -11,10 +11,17 @@ export default function useSyncSelectedObject({
 }) {
   useEffect(() => {
     if (!selectedObjectId) return;
+
     setPlacedObjects((prev) =>
       prev.map((obj) =>
         obj.id === selectedObjectId
-          ? { ...obj, size, color, rotation, position }
+          ? {
+              ...obj,
+              size: [...size],          // ✅ clone
+              color,
+              rotation: [...rotation],  // ✅ clone
+              position: [...position],  // ✅ clone
+            }
           : obj
       )
     );

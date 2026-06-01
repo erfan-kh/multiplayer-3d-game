@@ -1,297 +1,382 @@
-// Import core React hooks and libraries
-import React, { useRef, useEffect, useState } from 'react';
+// App.js
+import React, { useRef, useState, useEffect } from "react";
+import "./App.css";
+import * as THREE from "three";
 
-// Import core rendering and animation hooks from React Three Fiber
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+// Core components
+import EditorCanvas from "./components/EditorCanvas";
+import UIOverlay from "./components/UIOverlay";
 
-// Import OrbitControls for interactive camera movement (optional)
-import { OrbitControls } from '@react-three/drei';
+// Custom hooks
+import useSnapping from "./hooks/useSnapping";
+import useEditorState from "./hooks/useEditorState";
+import useGameSettings from "./hooks/useGameSettings";
+import useCameraMode from "./hooks/useCameraMode";
+import useGameLoop from "./hooks/useGameLoop";
+import usePointerHandlers from "./hooks/usePointerHandlers";
+import useSyncSelectedObject from "./hooks/useSyncSelectedObject";
+import useGameState from "./hooks/useGameState";
+import usePlayerControls from "./hooks/usePlayerControls";
 
-// Import global styles for the app
-import './App.css';
+// Context
+import { useMapEditor } from "./contexts/MapEditorContext";
 
-// Import the full Three.js library for 3D math and objects
-import * as THREE from 'three';
+export default function App() {
 
-// Define the SpaceGirl component
-function SpaceGirl({ moveInput }, ref) {
-  // Create a local reference to the character group if no ref is passed from parent
-  const localRef = useRef();
-  
-  // Use the forwarded ref if provided, otherwise fall back to localRef
-  const girlRef = ref || localRef;
-  
-  // Define movement speed
-  const speed = 0.05;
+ 
+  const isDraggingRef = useRef(false);
+  const lastSelectedIdRef = useRef(null);
 
-  // Store the state of pressed keys (e.g., W, A, S, D)
-  const keys = useRef({});
 
-  // Set up keyboard event listeners once when the component mounts
+
+// 🧩 Undo/Redo State
+const [history, setHistory] = useState([]);
+const [future, setFuture] = useState([]);
+
+
+  const [isVerticalDrag, setIsVerticalDrag] = useState(false);
+
+  // 🧱 Object Placement & Selection
+  const [placedObjects, setPlacedObjects] = useState([]);
+  const [selectedObjectId, setSelectedObjectId] = useState(null);
+  const [position, setPosition] = useState([0, 0, 0]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [snapSize, setSnapSize] = useState(1);
+  const dragOffset = useRef([0, 0, 0]);
+
+  const positionRef = useRef(position);
   useEffect(() => {
-    // When a key is pressed, mark it as active in the keys object
-    const handleKeyDown = (e) => (keys.current[e.key.toLowerCase()] = true);
+    positionRef.current = position;
+  }, [position]);
 
-    // When a key is released, mark it as inactive
-    const handleKeyUp = (e) => (keys.current[e.key.toLowerCase()] = false);
+  // 🧩 Advanced drag mode tracking
+  const lastDragMode = useRef(isVerticalDrag);
+  const lastPointerEvent = useRef(null);
 
-    // Attach event listeners to the window
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+useEffect(() => {
+  if (isDragging && lastDragMode.current !== isVerticalDrag && lastPointerEvent.current) {
+    lastDragMode.current = isVerticalDrag;
 
-    // Clean up the event listeners when the component unmounts
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, []);
+    const e = lastPointerEvent.current;
+    const obj = placedObjects.find((o) => o.id === selectedObjectId);
+    if (!obj || !e) return;
 
-  // chatgpt
-const ForwardedSpaceGirl = React.forwardRef(SpaceGirl);
+    const objectPos = new THREE.Vector3(...obj.position);
+    const intersection = new THREE.Vector3();
 
-  // useFrame runs on every rendered frame (~60 times per second)
-useFrame((state) => {
-  // Get the current reference to the SpaceGirl model
-  const girl = girlRef.current;
-  
-  if (!girl) return; // If the model isn't loaded yet, skip this frame
+    if (isVerticalDrag) {
+      const cameraDir = new THREE.Vector3();
+      e.camera.getWorldDirection(cameraDir);
+      cameraDir.y = 0;
+      cameraDir.normalize();
 
-  // Create a vector to represent movement direction
-  const direction = new THREE.Vector3();
-  
-  // Check which keys are pressed and update the direction vector accordingly
-  if (keys.current['w'] || keys.current['arrowup']) direction.z -= 1; // move forward
-  if (keys.current['s'] || keys.current['arrowdown']) direction.z += 1; // move backward
-  if (keys.current['a'] || keys.current['arrowleft']) direction.x -= 1; // move left
-  if (keys.current['d'] || keys.current['arrowright']) direction.x += 1; // move right
-  //if (keys.current['space bar'] || keys.current['spacebar']) direction.y += 1; // move up
-  if (keys.current[' ']) direction.y += 1;      // space = up
-  if (keys.current['shift']) direction.y -= 1; // shift = down
+      const verticalPlane = new THREE.Plane(
+        cameraDir,
+        -new THREE.Vector3(objectPos.x, 0, objectPos.z).dot(cameraDir)
+      );
 
-  console.log("erfaaaaaaaaaaaaannnnnnnnnnnn")
-  console.log(direction)
-  // If there's any directional input...
-  if (direction.length() > 0) {
-    direction.normalize(); // Normalize to keep consistent speed in all directions
-    direction.applyEuler(girl.rotation); // Rotate movement to match character's orientation
-    girl.position.addScaledVector(direction, speed); // Move the character
-  }
-
-  // If touch input is active (mobile), apply movement based on swipe delta
-  if (moveInput.current) {
-    girl.position.x += moveInput.current.dx * 0.01; // horizontal swipe
-    girl.position.z += moveInput.current.dy * 0.01; // vertical swipe
-  }
-
-
-
-    // Floating animation
-const t = state.clock.getElapsedTime(); 
-// Get the total time (in seconds) since the scene started running
-
-girl.position.y = -0.21 + Math.sin(t * 2) * 0.01;
-// Make the character float up and down smoothly using a sine wave
-// 0.05 is the base height, and the sine wave adds a gentle bounce effect
-// t * 2 controls the speed of the bounce, and 0.03 controls the height
-
-// Limb animation
-const swing = Math.sin(t * 6) * 0.3;
-// Create a faster sine wave to simulate a swinging motion for arms and legs
-// t * 6 makes the swing faster than the floating motion
-// 0.3 controls how far the limbs swing
-
-// Get references to the limb groups by their names (defined in the JSX structure)
-const leftArm = girl.getObjectByName('leftArm');
-const rightArm = girl.getObjectByName('rightArm');
-const leftLeg = girl.getObjectByName('leftLeg');
-const rightLeg = girl.getObjectByName('rightLeg');
-
-if (leftArm && rightArm && leftLeg && rightLeg) {
-  // If all limb parts are found in the model, apply the swing animation
-
-  leftArm.rotation.z = swing;       // Swing left arm forward
-  rightArm.rotation.z = -swing;     // Swing right arm backward (opposite direction)
-  leftLeg.rotation.x = -swing;      // Swing left leg backward
-  rightLeg.rotation.x = swing;      // Swing right leg forward
-
-  // This creates a walking-like motion, even when the character is idle
-}
-
-  });
-
-  return (
-  // The entire character is grouped together so it can be moved and animated as one unit
-  <group ref={girlRef}>
-
-    {/* Body: a capsule shape for the torso */}
-    <mesh position={[0, 0.5, 0]}>
-      <capsuleGeometry args={[0.25, 0.6, 8, 16]} />
-      <meshStandardMaterial color="#a8d8ff" />
-    </mesh>
-
-    {/* Head: a sphere placed above the body */}
-    <mesh position={[0, 1.2, 0]}>
-      <sphereGeometry args={[0.28, 32, 32]} />
-      <meshStandardMaterial color="#f7d9ff" />
-    </mesh>
-
-    {/* Smile: a half torus to form a curved mouth */}
-    <mesh position={[0, 1.12, 0.29]} rotation={[-10, 0, 0]}>
-      <torusGeometry args={[0.05, 0.01, 8, 16, Math.PI]} />
-      <meshStandardMaterial color="#aa66cc" />
-    </mesh>
-
-    {/* Eyes: two small spheres with emissive glow for a shiny look */}
-    <mesh position={[-0.09, 1.22, 0.26]}>
-      <sphereGeometry args={[0.035, 16, 16]} />
-      <meshStandardMaterial color="#3a2a4f" emissive="#2b1f40" emissiveIntensity={0.3} />
-    </mesh>
-    <mesh position={[0.09, 1.22, 0.26]}>
-      <sphereGeometry args={[0.035, 16, 16]} />
-      <meshStandardMaterial color="#3a2a4f" emissive="#2b1f40" emissiveIntensity={0.3} />
-    </mesh>
-
-    {/* Pigtails: two spheres on the sides of the head */}
-    <mesh position={[-0.25, 1.25, -0.05]}>
-      <sphereGeometry args={[0.18, 24, 24]} />
-      <meshStandardMaterial color="#c695ff" />
-    </mesh>
-    <mesh position={[0.25, 1.25, -0.05]}>
-      <sphereGeometry args={[0.18, 24, 24]} />
-      <meshStandardMaterial color="#c695ff" />
-    </mesh>
-
-    {/* Helmet ring: a torus around the head to simulate a space helmet ring */}
-    <mesh position={[0, 1.18, 0]}>
-      <torusGeometry args={[0.3, 0.06, 16, 64]} />
-      <meshStandardMaterial color="#9ed0ff" metalness={0.1} roughness={0.3} />
-    </mesh>
-
-    {/* Arms: each arm is a group with a cylinder (arm) and a sphere (hand) */}
-    <group name="leftArm" position={[-0.35, 0.75, 0]}>
-      <mesh>
-        <cylinderGeometry args={[0.06, 0.06, 0.35, 12]} />
-        <meshStandardMaterial color="#a8d8ff" />
-      </mesh>
-      <mesh position={[0, -0.22, 0]}>
-        <sphereGeometry args={[0.08, 16, 16]} />
-        <meshStandardMaterial color="#cfeaff" />
-      </mesh>
-    </group>
-    <group name="rightArm" position={[0.35, 0.75, 0]}>
-      <mesh>
-        <cylinderGeometry args={[0.06, 0.06, 0.35, 12]} />
-        <meshStandardMaterial color="#a8d8ff" />
-      </mesh>
-      <mesh position={[0, -0.22, 0]}>
-        <sphereGeometry args={[0.08, 16, 16]} />
-        <meshStandardMaterial color="#cfeaff" />
-      </mesh>
-    </group>
-
-    {/* Legs: each leg is a group with a cylinder (thigh) and a capsule (boot) */}
-    <group name="leftLeg" position={[-0.14, 0.15, 0]}>
-      <mesh>
-        <cylinderGeometry args={[0.08, 0.08, 0.4, 12]} />
-        <meshStandardMaterial color="#a8d8ff" />
-      </mesh>
-      <mesh position={[0, -0.25, 0]}>
-        <capsuleGeometry args={[0.09, 0.18, 8, 12]} />
-        <meshStandardMaterial color="#a8d8ff" />
-      </mesh>
-    </group>
-    <group name="rightLeg" position={[0.14, 0.15, 0]}>
-      <mesh>
-        <cylinderGeometry args={[0.08, 0.08, 0.4, 12]} />
-        <meshStandardMaterial color="#a8d8ff" />
-      </mesh>
-      <mesh position={[0, -0.25, 0]}>
-        <capsuleGeometry args={[0.09, 0.18, 8, 12]} />
-        <meshStandardMaterial color="#9ecbff" />
-      </mesh>
-    </group>
-
-    {/* Belt: a torus around the waist */}
-    <mesh position={[0, 0.55, 0]}>
-      <torusGeometry args={[0.22, 0.03, 12, 48]} />
-      <meshStandardMaterial color="#7fa6d1" />
-    </mesh>
-  </group>
-);
-}
-const ForwardedSpaceGirl = React.forwardRef(SpaceGirl);
-
-function CameraController({ mode, targetRef }) {
-  const { camera } = useThree();
-  useFrame(() => {
-    if (!targetRef.current) return;
-    const target = targetRef.current.position;
-    if (mode === 'third') {
-      camera.position.lerp(target.clone().add(new THREE.Vector3(0, 2, 5)), 0.1);
-      camera.lookAt(target);
-    } else if (mode === 'top') {
-      camera.position.lerp(target.clone().add(new THREE.Vector3(0, 10, 0.01)), 0.1);
-      camera.lookAt(target);
-    }
-  });
-  return null;
-}
-
-function App() {
-  const moveInput = useRef(null);
-  const girlRef = useRef();
-  const [cameraMode, setCameraMode] = useState('orbit');
-
-  useEffect(() => {
-    const handleKey = (e) => {
-      if (e.key.toLowerCase() === 'c') {
-        setCameraMode((prev) =>
-          prev === 'orbit' ? 'third' : prev === 'third' ? 'top' : 'orbit'
-        );
+      if (e.ray.intersectPlane(verticalPlane, intersection)) {
+        dragOffset.current = [
+          0,
+          intersection.y - objectPos.y,
+          0
+        ];
+        
       }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, []);
+    } else {
+      // Horizontal drag: use e.point directly for consistent offset
+      const { x, y, z } = e.point;
+      dragOffset.current = [
+        x - objectPos.x,
+        0,
+        z - objectPos.z
+      ];
+      
+      
+      
+      
+    }
+  }
+}, [isVerticalDrag, isDragging, placedObjects, selectedObjectId]);
 
-  const handleTouchStart = (e) => {
-    const touch = e.touches[0];
-    moveInput.current = { x: touch.clientX, y: touch.clientY, dx: 0, dy: 0 };
-  };
-  const handleTouchMove = (e) => {
-    const touch = e.touches[0];
-    if (!moveInput.current) return;
-    const dx = touch.clientX - moveInput.current.x;
-    const dy = touch.clientY - moveInput.current.y;
-    moveInput.current = { x: touch.clientX, y: touch.clientY, dx, dy };
-  };
-  const handleTouchEnd = () => {
-    moveInput.current = null;
-  };
+
+
+
+  // 🧩 UI Toggles
+  const [isDeleteMode, setIsDeleteMode] = useState(false);
+  const [snappingEnabled, setSnappingEnabled] = useState(true);
+  const [isCreatingObject, setIsCreatingObject] = useState(false);
+  const [showTransformControls, setShowTransformControls] = useState(true);
+  const [showSnapPoints, setShowSnapPoints] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+  const [showGameSettings, setShowGameSettings] = useState(false);
+
+
+
+
+
+    // 🧩 Undo/Redo Functions
+const MAX_HISTORY = 13;
+
+const recordHistory = () => {
+  setHistory((prev) => {
+    const snapshot = placedObjects.map((obj) => ({
+      ...obj,
+      position: [...obj.position],
+      rotation: [...obj.rotation],
+      size: [...obj.size],
+      snapPoints: obj.snapPoints ? obj.snapPoints.map(sp => ({ ...sp, offset: [...sp.offset] })) : [],
+    }));
+
+    const newHistory = [...prev, snapshot];
+    
+    return newHistory.length > MAX_HISTORY
+      ? newHistory.slice(newHistory.length - MAX_HISTORY)
+      : newHistory;
+  });
+  setFuture([]);
+};
+
+
+
+
+
+// Call recordHistory whenever placedObjects changes (except on undo/redo)
+const undo = () => {
+  if (history.length === 0) return;
+  
+  const previous = history[history.length - 1];
+  setFuture((f) => [placedObjects, ...f]);
+  setHistory((h) => h.slice(0, h.length - 1));
+  setPlacedObjects(previous);
+};
+
+
+// Call recordHistory whenever placedObjects changes (except on undo/redo)
+const redo = () => {
+  if (future.length === 0) return;
+  
+  const next = future[0];
+  setHistory((h) => [...h, placedObjects]);
+  setFuture((f) => f.slice(1));
+  setPlacedObjects(next);
+};
+
+
+const handleSetIsDragging = (value) => {
+  isDraggingRef.current = value;
+  setIsDragging(value);
+};
+
+
+const handleSetSelectedObjectId = (id) => {
+  if (id !== lastSelectedIdRef.current) {
+    lastSelectedIdRef.current = id;
+  }
+  setSelectedObjectId(id);
+};
+
+
+
+  const {
+    snapPreview,
+    activeSnapTarget,
+    setSnapPreview,
+    setActiveSnapTarget,
+    handlePointerUp,
+  } = useSnapping({
+    placedObjects,
+    selectedObjectId,
+    position,
+    setPlacedObjects,
+    setPosition,
+    isDragging,
+    setIsDragging,
+    snappingEnabled,
+    recordHistory, // ✅ Add this
+  });
+
+  const {
+    isDrawing,
+    setIsDrawing,
+    objectType,
+    setObjectType,
+    size,
+    setSize,
+    color,
+    setColor,
+    rotation,
+    setRotation,
+    previewPosition,
+    setPreviewPosition,
+    handleGroundClick,
+    handlePreviewMove,
+  } = useEditorState({
+    snapToGrid: (value) => (snapSize > 0 ? Math.round(value / snapSize) * snapSize : value),
+    setPlacedObjects,
+    setSelectedObjectId,
+    recordHistory, // ✅ Pass it here
+    setSelectedObjectId: handleSetSelectedObjectId, // ✅ use wrapped version
+  });
+
+  const {
+    girlRef,
+    joystickDir,
+    isJumping,
+    jumpVelocity,
+    handleJoystickMove,
+    handleJoystickEnd,
+  } = usePlayerControls();
+
+  const [cameraMode, setCameraMode] = useCameraMode();
+  const [zoom, setZoom] = useState(4.5);
+
+  const {
+    score,
+    setScore,
+    coins,
+    setCoins,
+    collectCoin,
+  } = useGameState();
+
+  const {
+    speed, setSpeed,
+    gravity, setGravity,
+    jumpForce, setJumpForce,
+  } = useGameSettings();
+  useGameLoop({ speed, gravity, jumpForce });
+
+  const { handlePointerMove, throttledPointerMove } = usePointerHandlers({
+    isDragging,
+    selectedObjectId,
+    positionRef,
+    setPosition,
+    snapSize,
+    dragOffset,
+    isVerticalDrag,
+    lastPointerEvent, // ✅ pass pointer event ref
+
+    recordHistory, // ✅ Add this
+  });
+
+  useSyncSelectedObject({
+    selectedObjectId,
+    size,
+    color,
+    rotation,
+    position,
+    setPlacedObjects,
+  });
+
+  const { isPanelOpen, setIsPanelOpen } = useMapEditor();
+
+  const radToDeg = (r) => Math.round((r * 180) / Math.PI);
+  const degToRad = (d) => (d * Math.PI) / 180;
+
+
+
+
 
   return (
     <div className="canvas-container">
-      <Canvas camera={{ position: [0, 2, 5], fov: 60 }}>
-        <color attach="background" args={['#d0dcffff']} />
-        <ambientLight intensity={0.7} />
-        <directionalLight position={[5, 5, 5]} intensity={0.8} />
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.5, 0]} receiveShadow>
-          <planeGeometry args={[10, 10]} />
-          <meshStandardMaterial color="#e0e0e0" />
-        </mesh>
-        <gridHelper args={[20, 20]} position={[0, -0.49, 0]} />
-        <ForwardedSpaceGirl ref={girlRef} moveInput={moveInput} />
-        {cameraMode === 'orbit' && <OrbitControls enableZoom={false} />}
-        <CameraController mode={cameraMode} targetRef={girlRef} />
-      </Canvas>
-      <div
-        className="touch-move-zone"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
+      <EditorCanvas
+        placedObjects={placedObjects}
+        setPlacedObjects={setPlacedObjects}
+        selectedObjectId={selectedObjectId}
+        //setSelectedObjectId={setSelectedObjectId}
+        position={position}
+        setPosition={setPosition}
+        size={size}
+        color={color}
+        rotation={rotation}
+        isDrawing={isDrawing}
+        isDeleteMode={isDeleteMode}
+        snapSize={snapSize}
+        snapPreview={snapPreview}
+        setSnapPreview={setSnapPreview}
+        activeSnapTarget={activeSnapTarget}
+        setActiveSnapTarget={setActiveSnapTarget}
+        isDragging={isDragging}
+        //setIsDragging={setIsDragging}
+        dragOffset={dragOffset}
+        joystickDir={joystickDir}
+        isJumping={isJumping}
+        jumpVelocity={jumpVelocity}
+        cameraMode={cameraMode}
+        zoom={zoom}
+        girlRef={girlRef}
+        coins={coins}
+        setCoins={setCoins}
+        collectCoin={collectCoin}
+        handleGroundClick={handleGroundClick}
+        handlePointerMove={handlePointerMove}
+        throttledPointerMove={throttledPointerMove}
+        handlePointerUp={handlePointerUp}
+        previewPosition={previewPosition}
+        setPreviewPosition={setPreviewPosition}
+        isVerticalDrag={isVerticalDrag}
+        setIsVerticalDrag={setIsVerticalDrag}
+        
+        recordHistory={recordHistory} // ✅ NEW
+
+        setIsDragging={handleSetIsDragging}
+
+        setSelectedObjectId={handleSetSelectedObjectId} // ✅ use wrapped version
+       
+      />
+
+      <UIOverlay
+        isPanelOpen={isPanelOpen}
+        setIsPanelOpen={setIsPanelOpen}
+        isCreatingObject={isCreatingObject}
+        setIsCreatingObject={setIsCreatingObject}
+        objectType={objectType}
+        setObjectType={setObjectType}
+        size={size}
+        setSize={setSize}
+        color={color}
+        setColor={setColor}
+        rotation={rotation}
+        setRotation={setRotation}
+        position={position}
+        setPosition={setPosition}
+        snapSize={snapSize}
+        setSnapSize={setSnapSize}
+        showTransformControls={showTransformControls}
+        setShowTransformControls={setShowTransformControls}
+        isDeleteMode={isDeleteMode}
+        setIsDeleteMode={setIsDeleteMode}
+        showOptions={showOptions}
+        setShowOptions={setShowOptions}
+        showGameSettings={showGameSettings}
+        setShowGameSettings={setShowGameSettings}
+        isDrawing={isDrawing}
+        setIsDrawing={setIsDrawing}
+        cameraMode={cameraMode}
+        setCameraMode={setCameraMode}
+        showSnapPoints={showSnapPoints}
+        setShowSnapPoints={setShowSnapPoints}
+        handleJoystickMove={handleJoystickMove}
+        handleJoystickEnd={handleJoystickEnd}
+        isJumping={isJumping}
+        jumpVelocity={jumpVelocity}
+        radToDeg={radToDeg}
+        degToRad={degToRad}
+        speed={speed}
+        setSpeed={setSpeed}
+        gravity={gravity}
+        setGravity={setGravity}
+        jumpForce={jumpForce}
+        setJumpForce={setJumpForce}
+        snappingEnabled={snappingEnabled}
+        setSnappingEnabled={setSnappingEnabled}
+        isVerticalDrag={isVerticalDrag}
+
+        undo={undo} // ✅ NEW 
+        redo={redo} // ✅ NEW 
+        history={history} // ✅ NEW 
+        future={future} // ✅ NEW
       />
     </div>
   );
 }
-
-export default App;

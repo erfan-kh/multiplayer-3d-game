@@ -1,3 +1,5 @@
+// AT THIS MOMENT WE HAVE NO IDEA WHAT WE ARE DOING HERE, IT IS SOMTHING ABOUT GAMME SETTING PANNEL!
+
 // hooks/useGameLoop.js
 import { useEffect } from "react";
 import { GAME_SETTINGS } from "../constants";

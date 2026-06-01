@@ -1,8 +1,8 @@
-// hooks/usePlayerControls.js
 import { useRef } from "react";
 import useJoystick from "./useJoystick";
 
 export default function usePlayerControls() {
+
   const girlRef = useRef();
 
   const {
@@ -11,6 +11,7 @@ export default function usePlayerControls() {
     jumpVelocity,
     handleJoystickMove,
     handleJoystickEnd,
+    handleJump
   } = useJoystick();
 
   return {
@@ -20,5 +21,7 @@ export default function usePlayerControls() {
     jumpVelocity,
     handleJoystickMove,
     handleJoystickEnd,
+    handleJump
   };
+
 }

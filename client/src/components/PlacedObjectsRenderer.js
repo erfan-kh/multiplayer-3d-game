@@ -13,7 +13,8 @@ export default function PlacedObjectsRenderer() {
               key={obj.id}
               position={obj.position}
               onClick={(e) => {
-                e.stopPropagation(); // prevent click from reaching ground
+                e.stopPropagation();
+
                 if (mode === EditorModes.DELETE) {
                   removeObjectAt(obj.position);
                 }
@@ -24,6 +25,7 @@ export default function PlacedObjectsRenderer() {
             </mesh>
           );
         }
+
         return null;
       })}
     </>

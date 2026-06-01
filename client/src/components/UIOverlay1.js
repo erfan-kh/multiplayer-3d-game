@@ -1,3 +1,5 @@
+// HERE WE ARE PUTING OUR UI LIKE JOYSTICK/CAMERA MODE/OBJECT CREATOR PANNEL/ MAP EDITOR PANNEL/ GAME SETTING PANNEL ETC . . .
+
 // components/UIOverlay.js
 import React, { useState, useEffect, useCallback, useRef } from "react";
 
@@ -9,8 +11,8 @@ import API_BASE_URL from "../config";
 
 import { io } from "socket.io-client";
 
-const socket = io("http://192.168.1.106:5000"); // Replace with your backend IP
 
+const socket = io(process.env.REACT_APP_API_BASE_URL);
 
 
 export default function UIOverlay({
@@ -61,6 +63,13 @@ export default function UIOverlay({
   setSnappingEnabled,
 
   isVerticalDrag,
+
+  recordHistory, // ✅ NEW
+
+  undo,
+  redo,
+  history,
+  future,
 }) {
   const [savedObjects, setSavedObjects] = useState({
     walls: [],
@@ -78,6 +87,23 @@ export default function UIOverlay({
 
   const [uploadedFile, setUploadedFile] = useState(null);
 
+
+
+
+const getCollisionType = (category) => {
+  switch (category) {
+    case "walls":
+    case "floors":
+    case "furniture":
+    case "car":
+      return "solid";
+    case "custom":
+      return "none";
+    default:
+      return "solid";
+  }
+};
+ 
 
 
 const fetchObjects = useCallback(async () => {
@@ -180,6 +206,7 @@ const handleSaveObject = async () => {
     rotation,
     color,
     snapSize,
+    collision: getCollisionType(selectedCategory), // ✅ ADDED
     createdAt: new Date().toISOString(),
   };
 
@@ -194,9 +221,7 @@ const handleSaveObject = async () => {
       const saved = await res.json();
       console.log("Saved to DB:", saved);
 
-
-
-      fetchObjects(); // ✅ Refresh from server
+      fetchObjects();
       setObjectName("");
       setModelPath("");
     } else {
@@ -209,19 +234,22 @@ const handleSaveObject = async () => {
 };
 
 
+
   const handleUpdateObject = async () => {
     if (!loadedObject) return;
 
     const updatedObject = {
-      name: objectName,
-      category: selectedCategory,
-      type: objectType,
-      size,
-      position,
-      rotation,
-      color,
-      snapSize,
-    };
+  name: objectName,
+  category: selectedCategory,
+  type: objectType,
+  size,
+  position,
+  rotation,
+  color,
+  snapSize,
+  collision: getCollisionType(selectedCategory), // ✅ ADDED
+};
+
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/objects/${loadedObject._id}`, {
@@ -636,13 +664,19 @@ const handleSaveObject = async () => {
               <button onClick={() => setSnappingEnabled((prev) => !prev)}>
                 {snappingEnabled ? "Disable Snapping (S)" : "Enable Snapping (S)"}
               </button>
+
+                <button onClick={undo} disabled={history.length === 0}>Undo</button>
+                <button onClick={redo} disabled={future.length === 0}>Redo</button>
             </div>    
             
 
             
           )}
 
-           
+
+
+
+   
 
 
           <div className="camera-toggle">

@@ -1,43 +1,54 @@
-import { useThree, useFrame } from "@react-three/fiber";
+// MapEditorInteraction.jsx
+// Central interaction layer for map editing (coin placement & deletion).
+// ✅ Updated to use R3F pointer events instead of manual DOM math.
+// ✅ Eliminates getBoundingClientRect-related TypeError.
+
+import { useThree } from "@react-three/fiber";
 import { useMapEditor, EditorModes } from "../contexts/MapEditorContext";
 import * as THREE from "three";
-import { useEffect } from "react";
 
 export default function MapEditorInteraction() {
-  const { camera, gl, scene } = useThree();
-  const raycaster = new THREE.Raycaster();
-  const mouse = new THREE.Vector2();
-
+  const { scene } = useThree();
   const { mode, addObject, removeObjectAt } = useMapEditor();
 
-  useEffect(() => {
-    const handleClick = (event) => {
-      if (mode === EditorModes.NONE) return;
+  /**
+   * Handles pointer clicks anywhere on the ground (through R3F's event system).
+   */
+  const handlePointerDown = (e) => {
+    if (mode === EditorModes.NONE) return;
 
-      const rect = gl.domElement.getBoundingClientRect();
-      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    // Stop event bubbling if needed
+    e.stopPropagation?.();
 
-      raycaster.setFromCamera(mouse, camera);
+    // R3F provides e.point automatically (world intersection point)
+    const point = e.point;
+    if (!point) return;
 
-      const intersects = raycaster.intersectObjects(scene.children, true);
-      const groundHit = intersects.find((i) => i.object.name === "ground");
+    // Use ground-level x,z coordinates
+    const position = [point.x, 0, point.z];
 
-      if (!groundHit) return;
+    if (mode === EditorModes.PLACE_COIN) {
+      addObject("coin", position);
+    } else if (mode === EditorModes.DELETE) {
+      removeObjectAt(position);
+    }
+  };
 
-      const point = groundHit.point;
-      const position = [point.x, 0, point.z];
-
-      if (mode === EditorModes.PLACE_COIN) {
-        addObject("coin", position);
-      } else if (mode === EditorModes.DELETE) {
-        removeObjectAt(position);
-      }
-    };
-
-    gl.domElement.addEventListener("pointerdown", handleClick);
-    return () => gl.domElement.removeEventListener("pointerdown", handleClick);
-  }, [camera, gl, scene, mode, addObject, removeObjectAt]);
-
-  return null;
+  /**
+   * We attach this handler to a large invisible plane that covers the ground.
+   * This removes all manual DOM math & ensures compatibility with R3F's event system.
+   */
+  return (
+    <mesh
+      name="editor-interaction-plane"
+      visible={false}
+      onPointerDown={handlePointerDown}
+      // Large plane to cover the work area
+      position={[0, 0, 0]}
+      rotation={[-Math.PI / 2, 0, 0]}
+    >
+      <planeGeometry args={[5000, 5000]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+    </mesh>
+  );
 }

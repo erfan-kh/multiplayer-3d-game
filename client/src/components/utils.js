@@ -1,3 +1,5 @@
+// HERE WE ARE MAKING SNAP FUNCTIONALITY TO DECLEAR MINIMUM DISTANCE OF SNAPPING AND HOW OBJECTS DETECT EACH OTHERS!
+
 import * as THREE from "three";
 
 // Extracts world-space snap points from bounding box corners

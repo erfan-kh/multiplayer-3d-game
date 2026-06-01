@@ -1,3 +1,5 @@
+// AT THIS MOMENT WE HAVE NO IDEA WHAT WE ARE DOING HERE
+
 // hooks/useGameState.js
 import { useState } from "react";
 

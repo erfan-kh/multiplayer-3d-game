@@ -1,13 +1,55 @@
 // components/EditorCanvas.js
-import React from "react";
-import { Canvas } from "@react-three/fiber";
+import React, { useRef, useEffect } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, useGLTF } from "@react-three/drei";
 
-import EditorScene from "./EditorScene";
+import EditorScene from "./EditorScene/EditorScene";
+
 import CameraController from "./CameraController";
-import CarModel from "./CarModel"; // ✅ Import your car model
-import { useGLTF } from "@react-three/drei";
+import CarModel from "./CarModel";
+
+/* ⭐ ADD THIS IMPORT — measurement tool MUST BE MOUNTED */
+import MeasurementTool from "../editor/MeasurementTool";
+
+function CameraLinkedLight() {
+  const lightRef = useRef();
+  const targetRef = useRef();
+  const { camera } = useThree();
+
+  useFrame(() => {
+    if (!lightRef.current || !targetRef.current) return;
+
+    const offset = new THREE.Vector3(5, 8, 5);
+    const camPos = camera.position.clone();
+    const direction = new THREE.Vector3();
+    camera.getWorldDirection(direction);
+
+    lightRef.current.position.copy(camPos.clone().add(offset));
+    targetRef.current.position.copy(
+      camPos.clone().add(direction.multiplyScalar(10))
+    );
+    lightRef.current.target = targetRef.current;
+  });
+
+  return (
+    <>
+      <directionalLight
+        ref={lightRef}
+        intensity={0.8}
+        castShadow
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-far={50}
+        shadow-camera-left={-20}
+        shadow-camera-right={20}
+        shadow-camera-top={20}
+        shadow-camera-bottom={-20}
+      />
+      <object3D ref={targetRef} />
+    </>
+  );
+}
 
 export default function EditorCanvas(props) {
   const {
@@ -15,12 +57,34 @@ export default function EditorCanvas(props) {
     cameraMode,
     zoom,
     handlePointerUp,
-    girlRef, // explicitly destructure girlRef
-
-    // ✅ Destructure vertical drag props
+    girlRef,
     isVerticalDrag,
     setIsVerticalDrag,
+    recordHistory,
+    setZoom,
+
+    /** Measurement mode props */
+    isMeasureMode,
+    setIsMeasureMode,
+
+    /** IMPORTANT: real registration callback */
+    registerClearMeasurements,
+    isCreatingObject,
+    objectType,
+
+    /** callback from App to receive object refs */
+    onObjectRefsReady,
   } = props;
+
+  /** ✅ This stores all Rapier RigidBody refs */
+  const objectRefs = useRef({});
+
+  /** ✅ Send refs back to App.js so pointer handlers can access them */
+  useEffect(() => {
+    if (onObjectRefsReady) {
+      onObjectRefsReady(objectRefs.current);
+    }
+  }, [onObjectRefsReady]);
 
   function GLTFObject({ object }) {
     const { scene } = useGLTF(object.modelPath);
@@ -36,19 +100,36 @@ export default function EditorCanvas(props) {
 
   return (
     <Canvas
+      shadows
       camera={{ position: [0, 2, 5], fov: 60 }}
       onPointerMissed={(e) => e.stopPropagation()}
-      onPointerUp={handlePointerUp}
+      onPointerUp={handlePointerUp || (() => {})}
     >
       <color attach="background" args={["#d0dcff"]} />
       <ambientLight intensity={0.7} />
-      <directionalLight position={[5, 5, 5]} intensity={0.8} />
+      <CameraLinkedLight />
 
-      {/* Your existing scene */}
       <EditorScene
         {...props}
+        objectRefs={objectRefs}   /* ✅ pass rigidbody refs down */
         isVerticalDrag={isVerticalDrag}
         setIsVerticalDrag={setIsVerticalDrag}
+        recordHistory={recordHistory}
+
+        /** Measurement mode */
+        isMeasureMode={isMeasureMode}
+        setIsMeasureMode={setIsMeasureMode}
+
+        /** register measurement clear fn */
+        registerClearMeasurements={registerClearMeasurements}
+
+        objectType={objectType}
+      />
+
+      {/* ⭐ Measurement Tool */}
+      <MeasurementTool
+        isActive={isMeasureMode}
+        onClearRequest={registerClearMeasurements}
       />
 
       {cameraMode === "orbit" && (
@@ -59,7 +140,13 @@ export default function EditorCanvas(props) {
         />
       )}
 
-      <CameraController cameraMode={cameraMode} girlRef={girlRef} />
+      <CameraController
+        cameraMode={cameraMode}
+        girlRef={girlRef}
+        zoom={zoom}
+        setZoom={setZoom}
+        isDragging={isDragging}
+      />
     </Canvas>
   );
 }

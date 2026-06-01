@@ -1,3 +1,5 @@
+// HERE WE ARE MAKING "C" KEY TO BE ABLE TO CHANGE CAMERAMODE BY PRESSING IT!
+
 // hooks/useCameraMode.js
 import { useState, useEffect } from "react";
 
