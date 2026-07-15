@@ -2,7 +2,8 @@
 import React, { useRef, useEffect } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { OrbitControls, useGLTF } from "@react-three/drei";
+import { OrbitControls, useGLTF, Environment } from "@react-three/drei";
+
 
 import EditorScene from "./EditorScene/EditorScene";
 
@@ -74,6 +75,14 @@ export default function EditorCanvas(props) {
 
     /** callback from App to receive object refs */
     onObjectRefsReady,
+    cameraFocusTarget,
+
+    pendingNpc,
+    npcPreviewPos,
+
+    placingWaypointForNpcId,
+    waypointPreviewPos,
+
   } = props;
 
   /** ✅ This stores all Rapier RigidBody refs */
@@ -106,8 +115,10 @@ export default function EditorCanvas(props) {
       onPointerUp={handlePointerUp || (() => {})}
     >
       <color attach="background" args={["#d0dcff"]} />
-      <ambientLight intensity={0.7} />
+      <ambientLight intensity={0.35} />
       <CameraLinkedLight />
+      <Environment files="/hdri/potsdamer_platz_1k.hdr" environmentIntensity={1.5} />
+
 
       <EditorScene
         {...props}
@@ -124,6 +135,14 @@ export default function EditorCanvas(props) {
         registerClearMeasurements={registerClearMeasurements}
 
         objectType={objectType}
+
+        pendingNpc={pendingNpc}
+        npcPreviewPos={npcPreviewPos}
+
+        placingWaypointForNpcId={placingWaypointForNpcId}
+        waypointPreviewPos={waypointPreviewPos}
+        
+
       />
 
       {/* ⭐ Measurement Tool */}
@@ -146,6 +165,8 @@ export default function EditorCanvas(props) {
         zoom={zoom}
         setZoom={setZoom}
         isDragging={isDragging}
+        cameraFocusTarget={cameraFocusTarget}
+        
       />
     </Canvas>
   );

@@ -9,6 +9,7 @@ export default function CameraController({
   zoom,
   setZoom,
   isDragging, // ✅ NEW: global dragging state from EditorCanvas
+  cameraFocusTarget   // ✅ NEW
 }) {
   const { camera, gl } = useThree();
   const smoothPosition = useRef(new THREE.Vector3());
@@ -340,9 +341,34 @@ export default function CameraController({
       camera.lookAt(0, 0, 0);
       orbitYaw.current = null;
       orbitPitch.current = null;
-      orbitTarget.current = new THREE.Vector3(0, 0, 0);
+      orbitTarget.current = new THREE.Vector3(20, 10, 40);
     }
   }, [cameraMode]);
+
+  
+
+  useEffect(() => {
+  if (!cameraFocusTarget) return;
+
+  const target = new THREE.Vector3(
+    cameraFocusTarget[0],
+    cameraFocusTarget[1],
+    cameraFocusTarget[2]
+  );
+
+  // Orbit mode → move orbit center
+  if (cameraMode === "orbit") {
+    orbitTarget.current.copy(target);
+  }
+
+  // Top mode → move top camera center
+  if (cameraMode === "top") {
+    topPosition.current.x = target.x;
+    topPosition.current.z = target.z;
+  }
+
+}, [cameraFocusTarget, cameraMode]);
+
 
   return null;
 }

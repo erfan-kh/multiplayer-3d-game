@@ -1,36 +1,28 @@
 // === FULL RAPiER PLAYER CONTROLLER VERSION ===
-// Replaces all manual collision logic with true physics.
+// Optimized: no per-frame allocations, delta-safe motion, less visual churn
 
 import React, { useRef } from "react";
 import { useFrame, useLoader } from "@react-three/fiber";
 import * as THREE from "three";
-import { RigidBody, CapsuleCollider, useRapier } from "@react-three/rapier";
+import { RigidBody, CapsuleCollider } from "@react-three/rapier";
 import { GAME_SETTINGS } from "../constants";
 import {
   PLAYER_HEIGHT,
-  PLAYER_RADIUS,
-  resolvePlayerCollision
+  PLAYER_RADIUS
 } from "../physics/playerCollision.js";
 
-// Compute proper capsule numbers once
 const HALF_CAPSULE_HEIGHT = (PLAYER_HEIGHT - 2 * PLAYER_RADIUS) / 2;
-
-// ❗ FIXED: Capsule center must be at PLAYER_HEIGHT/2
 const COLLIDER_Y_OFFSET = PLAYER_HEIGHT / 2;
 
 const SpaceGirl = React.forwardRef(
   ({ joystickDir, cameraMode, isJumping, jumpVelocity }, ref) => {
     const rigidRef = useRef();
 
-    // avoid conditional hook
     const innerGirlRef = useRef();
     const girlRef = ref || innerGirlRef;
 
     const materialRef = useRef();
     const isFacingRef = useRef(false);
-
-    // === Rapier World Access ===
-    const { world: rapierWorld } = useRapier();
 
     const frontTexture = useLoader(
       THREE.TextureLoader,
@@ -41,149 +33,159 @@ const SpaceGirl = React.forwardRef(
       "/stick-angel-back.png"
     );
 
-    // store vectors in refs (avoid allocations every render)
     const desiredVelocity = useRef(new THREE.Vector3());
-    const outVelocity = useRef(new THREE.Vector3());
-    const onGroundRef = useRef(false);
 
-    useFrame((state) => {
+    // reusable vectors
+    const cameraForward = useRef(new THREE.Vector3());
+    const cameraRight = useRef(new THREE.Vector3());
+    const inputDir = useRef(new THREE.Vector3());
+    const forward = useRef(new THREE.Vector3());
+    const toCamera = useRef(new THREE.Vector3());
+    const scaleVec = useRef(new THREE.Vector3());
+    const up = useRef(new THREE.Vector3(0, 1, 0));
+
+    useFrame((state, delta) => {
       const body = rigidRef.current;
       const girl = girlRef.current;
       if (!body || !girl) return;
 
       const desired = desiredVelocity.current;
-      const outVel = outVelocity.current;
-
-      /* ===============================
-         INPUT MOVEMENT
-      =============================== */
-
       const input = joystickDir.current || { x: 0, y: 0 };
       const speed = GAME_SETTINGS.SPEED;
 
       desired.set(0, 0, 0);
 
+      /* ===============================
+         INPUT MOVEMENT
+      =============================== */
+
       if (cameraMode === "third") {
-        girl.rotation.y -= input.x * 0.05;
-
-        const cameraForward = new THREE.Vector3();
-        state.camera.getWorldDirection(cameraForward);
-        cameraForward.y = 0;
-        cameraForward.normalize();
-
-        const cameraRight = new THREE.Vector3();
-        cameraRight
-          .crossVectors(cameraForward, new THREE.Vector3(0, 1, 0))
-          .normalize();
-
-        desired
-          .addScaledVector(cameraForward, -input.y)
-          .addScaledVector(cameraRight, input.x)
-          .normalize()
-          .multiplyScalar(speed);
-      } else {
-        const inputDir = new THREE.Vector3(input.x, 0, input.y);
-
-        if (inputDir.length() > 0) {
-          inputDir.normalize().multiplyScalar(speed);
-          desired.copy(inputDir);
-        } else {
-          desired.set(0, 0, 0);
+        if (Math.abs(input.x) > 0.001) {
+          girl.rotation.y -= input.x * 2.5 * delta;
         }
 
-        if (desired.length() > 0.01) {
+        state.camera.getWorldDirection(cameraForward.current);
+        cameraForward.current.y = 0;
+
+        if (cameraForward.current.lengthSq() > 0.000001) {
+          cameraForward.current.normalize();
+        }
+
+        cameraRight.current
+          .crossVectors(cameraForward.current, up.current);
+
+        if (cameraRight.current.lengthSq() > 0.000001) {
+          cameraRight.current.normalize();
+        }
+
+        if (Math.abs(input.x) > 0.001 || Math.abs(input.y) > 0.001) {
+          desired
+            .addScaledVector(cameraForward.current, -input.y)
+            .addScaledVector(cameraRight.current, input.x);
+
+          if (desired.lengthSq() > 0.000001) {
+            desired.normalize().multiplyScalar(speed);
+          }
+        }
+      } else {
+        inputDir.current.set(input.x, 0, input.y);
+
+        if (inputDir.current.lengthSq() > 0.000001) {
+          inputDir.current.normalize().multiplyScalar(speed);
+          desired.copy(inputDir.current);
+
           const angle = Math.atan2(desired.x, desired.z);
           girl.rotation.y = THREE.MathUtils.lerp(
             girl.rotation.y,
             angle,
-            0.15
+            Math.min(1, delta * 10)
           );
         }
       }
 
       /* ===============================
-         RAPiER COLLISION-BASED MOVEMENT
+         MOVEMENT
       =============================== */
 
       const currentVel = body.linvel();
-      outVel.set(desired.x, currentVel.y, desired.z);
 
-      resolvePlayerCollision(body, rapierWorld, outVel, onGroundRef);
-
-      body.setLinvel(
-        { x: outVel.x, y: outVel.y, z: outVel.z },
-        true
-      );
+      if (
+        Math.abs(currentVel.x - desired.x) > 0.0001 ||
+        Math.abs(currentVel.z - desired.z) > 0.0001
+      ) {
+        body.setLinvel(
+          {
+            x: desired.x,
+            y: currentVel.y,
+            z: desired.z
+          },
+          true
+        );
+      }
 
       /* ===============================
          JUMP
       =============================== */
 
-      if (isJumping.current && onGroundRef.current) {
+      if (isJumping.current) {
         body.applyImpulse(
           { x: 0, y: jumpVelocity.current, z: 0 },
           true
         );
+        isJumping.current = false;
       }
-
-      isJumping.current = false;
 
       /* ===============================
          TEXTURE / VISUAL FACING
       =============================== */
 
-      const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(
-        girl.quaternion
-      );
+      if (state.camera && materialRef.current) {
+        forward.current.set(0, 0, 1).applyQuaternion(girl.quaternion);
 
-      const toCamera = new THREE.Vector3()
-        .subVectors(state.camera.position, girl.position)
-        .normalize();
+        toCamera.current
+          .subVectors(state.camera.position, girl.position);
 
-      const dot = forward.dot(toCamera);
-      const isFacingCamera = dot > 0.5;
+        if (toCamera.current.lengthSq() > 0.000001) {
+          toCamera.current.normalize();
+        }
 
-      isFacingRef.current = isFacingCamera;
+        const dot = forward.current.dot(toCamera.current);
+        const isFacingCamera = dot > 0.5;
 
-      if (
-        materialRef.current &&
-        materialRef.current.map !==
-          (isFacingCamera ? frontTexture : backTexture)
-      ) {
-        materialRef.current.map = isFacingCamera
-          ? frontTexture
-          : backTexture;
+        if (isFacingRef.current !== isFacingCamera) {
+          isFacingRef.current = isFacingCamera;
 
-        materialRef.current.needsUpdate = true;
+          const nextTexture = isFacingCamera ? frontTexture : backTexture;
+          if (materialRef.current.map !== nextTexture) {
+            materialRef.current.map = nextTexture;
+            materialRef.current.needsUpdate = true;
+          }
+        }
+
+        const targetScale = isFacingCamera
+          ? GAME_SETTINGS.SCALE_WHEN_FACING_CAMERA
+          : GAME_SETTINGS.SCALE_DEFAULT;
+
+        scaleVec.current.set(targetScale, targetScale, targetScale);
+        girl.scale.lerp(scaleVec.current, Math.min(1, delta * 10));
       }
-
-      const targetScale = isFacingCamera
-        ? GAME_SETTINGS.SCALE_WHEN_FACING_CAMERA
-        : GAME_SETTINGS.SCALE_DEFAULT;
-
-      girl.scale.lerp(
-        new THREE.Vector3(targetScale, targetScale, targetScale),
-        0.1
-      );
     });
 
     return (
       <RigidBody
         ref={rigidRef}
-        position={[0, 2, 0]}
+        position={[27, 2, 68]}
         colliders={false}
         mass={1}
         friction={0}
-        lockRotations={true}
-        enabledRotations={[false, false, false]}
+        linearDamping={8}
+        lockRotations
       >
-        {/* === CORRECTED CAPSULE COLLIDER === */}
         <CapsuleCollider
           args={[HALF_CAPSULE_HEIGHT, PLAYER_RADIUS]}
           position={[0, COLLIDER_Y_OFFSET, 0]}
         />
 
-        {/* ❗ FIXED: Move visual mesh UP so feet match physics */}
         <group ref={girlRef} position={[0, PLAYER_HEIGHT / 2, 0]}>
           <mesh
             position={[0, 0, -0.01]}

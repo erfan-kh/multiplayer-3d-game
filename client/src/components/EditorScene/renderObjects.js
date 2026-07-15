@@ -56,7 +56,7 @@ const GLTFObject = React.forwardRef(
 );
 
 // =====================================================
-// Ramp Geometry (Preview only)
+// Ramp Geometry
 // =====================================================
 
 const RampGeometry = React.memo(function RampGeometry({ size }) {
@@ -64,16 +64,24 @@ const RampGeometry = React.memo(function RampGeometry({ size }) {
     if (!size || size.length !== 3) return new THREE.BoxGeometry(1, 1, 1);
 
     const [width, height, depth] = size;
+
     const shape = new THREE.Shape();
     shape.moveTo(0, 0);
     shape.lineTo(width, 0);
     shape.lineTo(width, height);
     shape.lineTo(0, 0);
 
-    const extrudeSettings = { steps: 1, depth, bevelEnabled: false };
+    const extrudeSettings = {
+      steps: 1,
+      depth,
+      bevelEnabled: false,
+    };
+
     const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+
     geo.rotateX(-Math.PI * 2);
     geo.translate(-width / 2, 0, -depth / 2);
+
     return geo;
   }, [size]);
 
@@ -81,7 +89,7 @@ const RampGeometry = React.memo(function RampGeometry({ size }) {
 });
 
 // =====================================================
-// Ramp Item (Collider + Rendered Mesh)
+// Ramp Item Collider + Rendered Mesh
 // =====================================================
 
 const RampItem = React.memo(function RampItem({
@@ -94,20 +102,29 @@ const RampItem = React.memo(function RampItem({
   rigidRef,
 }) {
   const geometry = useMemo(() => {
-    if (!obj?.size || obj.size.length !== 3)
+    if (!obj?.size || obj.size.length !== 3) {
       return new THREE.BoxGeometry(1, 1, 1);
+    }
 
     const [width, height, depth] = obj.size;
+
     const shape = new THREE.Shape();
     shape.moveTo(0, 0);
     shape.lineTo(width, 0);
     shape.lineTo(width, height);
     shape.lineTo(0, 0);
 
-    const extrudeSettings = { steps: 1, depth, bevelEnabled: false };
+    const extrudeSettings = {
+      steps: 1,
+      depth,
+      bevelEnabled: false,
+    };
+
     const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+
     geo.rotateX(-Math.PI * 2);
     geo.translate(-width / 2, -0.5, -depth / 2);
+
     return geo;
   }, [obj.size]);
 
@@ -125,6 +142,7 @@ const RampItem = React.memo(function RampItem({
       rotation={[rx, ry, rz]}
     >
       <ConvexHullCollider args={[vertices]} />
+
       <mesh {...commonMeshProps} geometry={geometry}>
         {material}
       </mesh>
@@ -133,7 +151,7 @@ const RampItem = React.memo(function RampItem({
 });
 
 // =====================================================
-// Main Renderer
+// Main Object Renderer
 // =====================================================
 
 export function renderObject(
@@ -142,7 +160,10 @@ export function renderObject(
   handlePointerDown,
   objectRefs
 ) {
+
+  
   const isSelected = obj.id === selectedObjectId;
+
   const [rx = 0, ry = 0, rz = 0] = obj.rotation || [];
 
   // --- Ref registration for both RigidBody and Mesh ---
@@ -161,7 +182,11 @@ export function renderObject(
 
   const registerMeshRef = (mesh) => {
     if (!objectRefs?.current) return;
-    if (!objectRefs.current[obj.id]) objectRefs.current[obj.id] = {};
+
+    if (!objectRefs.current[obj.id]) {
+      objectRefs.current[obj.id] = {};
+    }
+
     objectRefs.current[obj.id].mesh = mesh;
   };
 
@@ -172,13 +197,35 @@ export function renderObject(
     onPointerDown: (e) => handlePointerDown(e, obj),
   };
 
-  const material = (
-    <meshStandardMaterial
-      color={obj.color}
-      emissive={isSelected ? "#ffff00" : "#000"}
-      emissiveIntensity={isSelected ? 0.5 : 0}
-    />
-  );
+  const isGlass = obj.material === "glass";
+
+  const material = isGlass ? (
+  <meshPhysicalMaterial
+    color={obj.color || "#c9f6ff"}
+    transparent
+    opacity={0.28}
+    transmission={1}
+    thickness={1.5}
+    ior={1.52}
+    roughness={0}
+    metalness={0}
+    clearcoat={1}
+    clearcoatRoughness={0}
+    reflectivity={1}
+    envMapIntensity={3}
+    side={THREE.DoubleSide}
+    depthWrite={false}
+    emissive={isSelected ? "#ffff00" : "#000000"}
+    emissiveIntensity={isSelected ? 0.25 : 0}
+  />
+) : (
+  <meshStandardMaterial
+    color={obj.color || "#ffffff"}
+    emissive={isSelected ? "#ffff00" : "#000000"}
+    emissiveIntensity={isSelected ? 0.5 : 0}
+  />
+);
+
 
   switch (obj.type) {
     case "cylinder":
@@ -192,6 +239,7 @@ export function renderObject(
           rotation={[rx, ry, rz]}
         >
           <CylinderCollider args={[obj.size[1] / 2, obj.size[0] / 2]} />
+
           <mesh {...commonMeshProps}>
             <cylinderGeometry
               args={[obj.size[0] / 2, obj.size[0] / 2, obj.size[1], 32]}
@@ -214,6 +262,7 @@ export function renderObject(
           <CuboidCollider
             args={[obj.size[0] / 2, obj.size[1] / 2, obj.size[0] / 2]}
           />
+
           <mesh {...commonMeshProps}>
             <coneGeometry args={[obj.size[0] / 2, obj.size[1], 4]} />
             {material}
@@ -261,12 +310,9 @@ export function renderObject(
           rotation={[rx, ry, rz]}
         >
           <CuboidCollider
-            args={[
-              obj.size[0] / 2,
-              obj.size[1] / 2,
-              obj.size[2] / 2,
-            ]}
+            args={[obj.size[0] / 2, obj.size[1] / 2, obj.size[2] / 2]}
           />
+
           <mesh {...commonMeshProps}>
             <boxGeometry args={obj.size} />
             {material}
@@ -277,19 +323,56 @@ export function renderObject(
 }
 
 // =====================================================
-// Preview Renderer (unchanged)
+// Preview Renderer
 // =====================================================
 
-export function renderPreview(previewPosition, size, rotation, color, type) {
+export function renderPreview(
+  previewPosition,
+  size,
+  rotation,
+  color,
+  type,
+  materialType = "standard"
+) {
   if (!previewPosition) return null;
+
   const [rx = 0, ry = 0, rz = 0] = rotation || [];
+
+  const isGlassPreview = materialType === "glass";
+
+  const previewMaterial = isGlassPreview ? (
+    <meshPhysicalMaterial
+  color={color || "#c9f6ff"}
+  transparent
+  opacity={0.25}
+  transmission={1}
+  thickness={1}
+  ior={1.52}
+  roughness={0}
+  metalness={0}
+  clearcoat={1}
+  clearcoatRoughness={0}
+  reflectivity={1}
+  envMapIntensity={3}
+  side={THREE.DoubleSide}
+  depthWrite={false}
+/>
+
+  ) : (
+    <meshStandardMaterial
+      color={color || "#ffffff"}
+      transparent
+      opacity={0.45}
+      depthWrite={false}
+    />
+  );
 
   switch (type) {
     case "cylinder":
       return (
         <mesh position={previewPosition} rotation={[rx, ry, rz]}>
           <cylinderGeometry args={[size[0] / 2, size[0] / 2, size[1], 32]} />
-          <meshStandardMaterial color={color} transparent opacity={0.5} />
+          {previewMaterial}
         </mesh>
       );
 
@@ -297,7 +380,7 @@ export function renderPreview(previewPosition, size, rotation, color, type) {
       return (
         <mesh position={previewPosition} rotation={[rx, ry, rz]}>
           <coneGeometry args={[size[0] / 2, size[1], 4]} />
-          <meshStandardMaterial color={color} transparent opacity={0.5} />
+          {previewMaterial}
         </mesh>
       );
 
@@ -305,7 +388,7 @@ export function renderPreview(previewPosition, size, rotation, color, type) {
       return (
         <mesh position={previewPosition} rotation={[rx, ry, rz]}>
           <RampGeometry size={size} />
-          <meshStandardMaterial color={color} transparent opacity={0.5} />
+          {previewMaterial}
         </mesh>
       );
 
@@ -314,7 +397,7 @@ export function renderPreview(previewPosition, size, rotation, color, type) {
       return (
         <mesh position={previewPosition} rotation={[rx, ry, rz]}>
           <boxGeometry args={size} />
-          <meshStandardMaterial color={color} transparent opacity={0.5} />
+          {previewMaterial}
         </mesh>
       );
   }

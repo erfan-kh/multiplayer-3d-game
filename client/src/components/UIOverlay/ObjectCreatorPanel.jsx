@@ -12,6 +12,9 @@ export default function ObjectCreatorPanel({
   color,
   setColor,
 
+  material,
+  setMaterial,
+
   rotation,
   setRotation,
 
@@ -82,30 +85,35 @@ export default function ObjectCreatorPanel({
   // No more infinite update depth + prevents ghost preview
   // ======================================================
   useEffect(() => {
-    if (!selectedObject) return;
-    if (isDrawing) return;
-    if (isDragging) return;
+  if (!selectedObject) return;
+  if (isDrawing) return;
+  if (isDragging) return;
 
-    if (lastSyncedId.current === selectedObject.id) return;
-    lastSyncedId.current = selectedObject.id;
+  if (lastSyncedId.current === selectedObject.id) return;
+  lastSyncedId.current = selectedObject.id;
 
-    if (Array.isArray(selectedObject.position)) {
-      setPosition([...selectedObject.position]);
-    }
+  if (Array.isArray(selectedObject.position)) {
+    setPosition([...selectedObject.position]);
+  }
 
-    if (Array.isArray(selectedObject.size)) {
-      setSize([...selectedObject.size]);
-    }
+  if (Array.isArray(selectedObject.size)) {
+    setSize([...selectedObject.size]);
+  }
 
-    if (Array.isArray(selectedObject.rotation)) {
-      setRotation([...selectedObject.rotation]);
-    }
+  if (Array.isArray(selectedObject.rotation)) {
+    setRotation([...selectedObject.rotation]);
+  }
 
-    if (selectedObject.color) {
-      setColor(selectedObject.color);
-    }
+  if (selectedObject.color) {
+    setColor(selectedObject.color);
+  }
 
-  }, [selectedObject?.id, isDrawing, isDragging]);
+  if (selectedObject.material) {
+    setMaterial(selectedObject.material);
+  }
+
+}, [selectedObject?.id, isDrawing, isDragging, setPosition, setSize, setRotation, setColor, setMaterial]);
+
 
   // ======================================================
   // HARD SAFETY: preview must be cleared when NOT drawing
@@ -260,7 +268,9 @@ export default function ObjectCreatorPanel({
           <option value={1}>1</option>
           <option value={0.5}>0.5</option>
           <option value={0.25}>0.25</option>
-          <option value={0}>Off</option>
+          <option value={0.1}>0.1</option>
+          <option value={0.000000000000001}>Off</option>
+          
         </select>
       </label>
 
@@ -278,6 +288,26 @@ export default function ObjectCreatorPanel({
           }}
         />
       </label>
+
+      <label>
+        Material
+        <select
+          value={material || "standard"}
+          onChange={(e) => {
+            setMaterial(e.target.value);
+          
+            if (!isDrawing && selectedObjectId) {
+              updatePlacedObject(selectedObjectId, {
+                material: e.target.value,
+              });
+            }
+          }}
+        >
+          <option value="standard">Standard</option>
+          <option value="glass">Glass</option>
+        </select>
+      </label>
+
 
       {[0, 1, 2].map((axis) => (
         <label key={axis}>
@@ -362,6 +392,7 @@ export default function ObjectCreatorPanel({
         objectType={objectType}
         size={safeSize}
         color={color}
+        material={material || "standard"}
         rotation={safeRotation}
       />
 

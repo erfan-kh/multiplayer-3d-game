@@ -10,7 +10,9 @@ export default function OptionsPanel({
   setShowMaps,
   showGameSettings,
   isCreatingObject,
-  showMaps
+  showMaps,
+  setShowNpcManager,
+  showNpcManager
 }) {
 
   const toggleOptions = () => {
@@ -23,6 +25,8 @@ export default function OptionsPanel({
     if (showGameSettings) return "settings";
     if (isCreatingObject) return "creator";
     if (showMaps) return "maps";
+    if (showNpcManager) return "npc";
+
     return null;
   }, [showGameSettings, isCreatingObject, showMaps]);
 
@@ -87,6 +91,18 @@ export default function OptionsPanel({
           <button style={getStyle("maps")} onClick={handleMaps}>
             Map Manager
           </button>
+          <button
+            style={getStyle("npc")}
+            onClick={() => {
+              setShowNpcManager(prev => !prev);
+              setShowCreator(false);
+              setShowSettings(false);
+              setShowMaps(false);
+            }}
+          >
+            NPC Manager
+          </button>
+
         </div>
       )}
     </div>

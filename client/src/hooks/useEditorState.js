@@ -22,6 +22,8 @@ export default function useEditorState({
   const [size, setSize] = useState([1, 1, 1]);
   const [color, setColor] = useState("#cccccc");
   const [rotation, setRotation] = useState([0, 0, 0]);
+  const [material, setMaterial] = useState("standard");
+
 
   const [previewPosition, setPreviewPosition] = useState(null);
 
@@ -71,6 +73,7 @@ export default function useEditorState({
         position: [x, y, z],
         size: [...size],
         color,
+        material, // ✅ NEW
         rotation: [...rotation],
         snapPoints: [
           { id: "top", offset: [0, size[1] / 2, 0] },
@@ -94,6 +97,7 @@ export default function useEditorState({
       size,
       color,
       rotation,
+      material,
       snapToGrid,
       setPlacedObjects,
       setSelectedObjectId,
@@ -153,6 +157,10 @@ export default function useEditorState({
 
     // Handlers
     handleGroundClick,
-    handlePreviewMove
+    handlePreviewMove,
+    
+    material,
+    setMaterial,
+
   };
 }

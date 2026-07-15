@@ -19,6 +19,23 @@ export default function EditorGizmo({
 
     const controls = transformRef.current;
 
+    const handleObjectChange = () => {
+      if (!controls.object || !selectedObjectId) return;
+
+      const meshPos = controls.object.position;
+
+      const entry = objectRefs?.current?.[selectedObjectId];
+      const rb = entry?.rigidBody;
+
+      if (rb?.setNextKinematicTranslation) {
+        rb.setNextKinematicTranslation({
+          x: meshPos.x,
+          y: meshPos.y,
+          z: meshPos.z,
+        });
+      }
+    };
+
     const handleMouseUp = () => {
       if (!controls.object || !selectedObjectId) return;
 
@@ -43,13 +60,18 @@ export default function EditorGizmo({
       );
     };
 
+    controls.addEventListener("objectChange", handleObjectChange);
     controls.addEventListener("mouseUp", handleMouseUp);
+
     return () => {
+      controls.removeEventListener("objectChange", handleObjectChange);
       controls.removeEventListener("mouseUp", handleMouseUp);
     };
   }, [selectedMesh, selectedObjectId, setPlacedObjects, objectRefs]);
 
-  if (!selectedMesh) return null;
+  //if (!selectedMesh) return null;
+  return null;
+
 
   return (
     <TransformControls

@@ -27,10 +27,13 @@ import useMaps from "./hooks/useMaps";
 
 import API_BASE_URL from "../../config";
 import useTemplates from "./hooks/useTemplates";
+import NPCManagerPanel from "./NPCManagerPanel";
 
 export default function UIOverlay(props) {
-
   const {
+    material,
+    setMaterial,
+
     isCreatingObject,
     setIsCreatingObject,
     objectType,
@@ -92,38 +95,46 @@ export default function UIOverlay(props) {
 
     setPreviewPosition,
 
-    // 🔥 From editor parent:
     selectedObjectId,
     updatePlacedObject,
 
-    // 🔥 The missing part we needed:
-    isDragging
+    isDragging,
+
+    npcs,
+    setNpcs,
+    selectedNpcId,
+    setSelectedNpcId,
+    showNpcManager,
+    setShowNpcManager,
+    focusCameraOnNpc,
+
+    updateNpc,
+
+    setPendingNpc,
+    setPlacingWaypointForNpcId,
+    placingWaypointForNpcId,
+
+    selectedWaypointIndex,
+    setSelectedWaypointIndex,
+
+    currentMapId,
+    setCurrentMapId,
   } = props;
 
-  // ---🔥 CLEAN POSITION (remove fallbackPos & safeSetPosition) ----
   const positionToUse =
-    Array.isArray(position) && position.length === 3
-      ? position
-      : [0, 0, 0];
+    Array.isArray(position) && position.length === 3 ? position : [0, 0, 0];
 
-  // ---------- Compute selectedObject ----------
   const selectedObject = useMemo(() => {
     if (!selectedObjectId || !Array.isArray(placedObjects)) return null;
     return placedObjects.find((o) => o.id === selectedObjectId) || null;
   }, [placedObjects, selectedObjectId]);
 
-
-  // ---------------- MAPS ----------------
-  const {
-    maps,
+  const { maps, fetchMaps, createMap, deleteMap, loadMapObjects, normalizeNpcFromApi } = useMaps(
+    setPlacedObjects,
     currentMapId,
     setCurrentMapId,
-    fetchMaps,
-    createMap,
-    deleteMap,
-    loadMapObjects,
-    saveMapObjects
-  } = useMaps(setPlacedObjects);
+    setNpcs
+  );
 
   useEffect(() => {
     fetchMaps();
@@ -153,32 +164,186 @@ export default function UIOverlay(props) {
   };
 
   const handleSaveMap = async () => {
-    if (!currentMapId) return;
+    if (!currentMapId) {
+      alert("No active map selected!");
+      return;
+    }
+
+    const validBehavior = (value) => {
+      if (["look", "chase", "attack", "ignore", "flee"].includes(value)) return value;
+      return "look";
+    };
+
+    const validTargetType = (value) => {
+      if (value === "npcs") return "npc";
+      if (["player", "npc", "both"].includes(value)) return value;
+      return "both";
+    };
+
+    const validPatrolMode = (value) => {
+      if (["loop", "pingpong"].includes(value)) return value;
+      return "loop";
+    };
+
+    const validMovementMode = (value) => {
+      if (["idle", "static", "wander", "patrol"].includes(value)) return value;
+      return "idle";
+    };
+
+    const toFiniteNumber = (value, fallback = 0) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
 
     try {
-      const objectsToSave =
-        (Array.isArray(placedObjects) ? placedObjects : []).map((o) => ({
-          ...o,
-          name: o.name || "Object",
-          category: o.category || "custom",
-          snapSize: o.snapSize ?? snapSize ?? 1
-        }));
+      const objectsToSave = (Array.isArray(placedObjects) ? placedObjects : []).map((o) => ({
+        ...o,
+        name: o.name || "Object",
+        category: o.category || "custom",
+        material: o.material || "standard",
+        snapSize: o.snapSize ?? snapSize ?? 1,
+      }));
 
-      await saveMapObjects(currentMapId, objectsToSave);
-      alert("Map saved!");
-    } catch {
-      alert("Failed to save map.");
+      const npcsToSave = (Array.isArray(npcs) ? npcs : []).map((npc) => {
+        const movementMode = npc.movement?.mode || npc.movement?.type || "idle";
+        const fallbackWaitTime = toFiniteNumber(npc.movement?.waitTime, 0);
+
+        const serializedWaypoints = Array.isArray(npc.waypoints)
+          ? npc.waypoints.map((waypoint) => {
+              const rawPos = Array.isArray(waypoint)
+                ? waypoint
+                : Array.isArray(waypoint?.pos)
+                  ? waypoint.pos
+                  : [0, 0.2, 0];
+
+              return {
+                pos: [
+                  toFiniteNumber(rawPos[0], 0),
+                  toFiniteNumber(rawPos[1], 0.2),
+                  toFiniteNumber(rawPos[2], 0),
+                ],
+                waitTime: Math.max(
+                  0,
+                  toFiniteNumber(
+                    !Array.isArray(waypoint) ? waypoint?.waitTime : fallbackWaitTime,
+                    fallbackWaitTime
+                  )
+                ),
+              };
+            })
+          : [];
+
+        // Normalize dialogue structure client-side during save operation
+        let finalDialogue = npc.dialogue;
+        if (typeof finalDialogue === "string") {
+          finalDialogue = {
+            startNodeId: "root",
+            nodes: {
+              root: {
+                id: "root",
+                text: finalDialogue || "Hello traveler!",
+                choices: [],
+                onEnter: [],
+                onExit: [],
+              },
+            },
+          };
+        } else if (!finalDialogue || typeof finalDialogue !== "object") {
+          finalDialogue = {
+            startNodeId: "root",
+            nodes: {
+              root: {
+                id: "root",
+                text: "Hello traveler!",
+                choices: [],
+                onEnter: [],
+                onExit: [],
+              },
+            },
+          };
+        }
+
+        return {
+          ...npc,
+          id: npc.npcId || npc.id,
+          npcId: npc.npcId || npc.id,
+
+          movement: {
+            mode: validMovementMode(movementMode),
+            speed: toFiniteNumber(npc.movement?.speed, 2),
+            waitTime: fallbackWaitTime,
+            wanderRadius: toFiniteNumber(npc.movement?.wanderRadius, 5),
+          },
+
+          detection: {
+            radius: toFiniteNumber(npc.detection?.radius, 6),
+            behavior: validBehavior(npc.detection?.behavior),
+            targetType: validTargetType(npc.detection?.targetType),
+            stopDistance: toFiniteNumber(npc.detection?.stopDistance, 0.8),
+            debug: Boolean(npc.detection?.debug),
+            reactions:
+              npc.detection?.reactions &&
+              typeof npc.detection.reactions === "object"
+                ? npc.detection.reactions
+                : {},
+          },
+
+          patrolMode: validPatrolMode(npc.patrolMode),
+
+          isPatrolling:
+            typeof npc.isPatrolling === "boolean" ? npc.isPatrolling : true,
+
+          currentWaypointIndex: Math.max(
+            0,
+            toFiniteNumber(npc.currentWaypointIndex, 0)
+          ),
+
+          waypoints: serializedWaypoints,
+
+          dialogue: finalDialogue,
+        };
+      });
+
+      console.log("NPCs being saved:", npcsToSave);
+
+      const objectsRes = await fetch(`${API_BASE_URL}/api/maps/${currentMapId}/objects`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ objects: objectsToSave }),
+      });
+
+      if (!objectsRes.ok) {
+        const errorText = await objectsRes.text();
+        throw new Error(`Object save failed (${objectsRes.status}): ${errorText}`);
+      }
+
+      const npcsRes = await fetch(`${API_BASE_URL}/api/maps/${currentMapId}/npcs`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ npcs: npcsToSave }),
+      });
+
+      if (!npcsRes.ok) {
+        const errorText = await npcsRes.text();
+        throw new Error(`NPC save failed (${npcsRes.status}): ${errorText}`);
+      }
+
+      const npcSaveResult = await npcsRes.json();
+
+      if (Array.isArray(npcSaveResult.npcs)) {
+        const mappedNpcs = npcSaveResult.npcs.map(normalizeNpcFromApi);
+        setNpcs(mappedNpcs);
+      }
+
+      alert("Map and NPCs saved successfully!");
+    } catch (err) {
+      console.error("Save failed:", err);
+      alert(`Failed to save map/NPCs.\n${err.message}`);
     }
   };
 
   const handleDeleteMap = async (id) => {
     await deleteMap(id);
-
-    if (id === currentMapId) {
-      setCurrentMapId(null);
-      setPlacedObjects([]);
-    }
-
     fetchMaps();
   };
 
@@ -187,7 +352,7 @@ export default function UIOverlay(props) {
       await fetch(`${API_BASE_URL}/api/maps/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name }),
       });
 
       fetchMaps();
@@ -196,42 +361,48 @@ export default function UIOverlay(props) {
     }
   };
 
-  const loadObject = useCallback((obj) => {
-    setObjectType(obj.type);
-    setSize(obj.size);
+  const loadObject = useCallback(
+    (obj) => {
+      setObjectType(obj.type);
+      setSize(Array.isArray(obj.size) ? obj.size : [1, 1, 1]);
 
-    setRotation(
-      Array.isArray(obj.rotation)
-        ? [...obj.rotation]
-        : [
-            obj.rotation?.x || 0,
-            obj.rotation?.y || 0,
-            obj.rotation?.z || 0
-          ]
-    );
+      setRotation(
+        Array.isArray(obj.rotation)
+          ? [...obj.rotation]
+          : [obj.rotation?.x || 0, obj.rotation?.y || 0, obj.rotation?.z || 0]
+      );
 
-    setColor(obj.color);
-    setSnapSize(obj.snapSize);
+      setColor(obj.color || "#cccccc");
+      setMaterial(obj.material || "standard");
+      setSnapSize(obj.snapSize ?? 1);
 
-    setIsCreatingObject(true);
+      setIsCreatingObject(true);
 
-    setLoadedObject(obj);
-    setObjectName(obj.name);
-    setSelectedCategory(obj.category);
-    setModelPath(obj.modelPath || "");
-  }, []);
+      setLoadedObject(obj);
+      setObjectName(obj.name || "");
+      setSelectedCategory(obj.category || "custom");
+      setModelPath(obj.modelPath || "");
+    },
+    [
+      setObjectType,
+      setSize,
+      setRotation,
+      setColor,
+      setMaterial,
+      setSnapSize,
+      setIsCreatingObject,
+    ]
+  );
 
   useEffect(() => {
     loadTemplates();
-  }, []);
+  }, [loadTemplates]);
 
-  // ✅ Clear ghost preview when drag ends
-useEffect(() => {
-  if (!isDragging) {
-    setPreviewPosition(null);
-  }
-}, [isDragging, setPreviewPosition]);
-
+  useEffect(() => {
+    if (!isDragging) {
+      setPreviewPosition(null);
+    }
+  }, [isDragging, setPreviewPosition]);
 
   useSnapHotkey(setSnappingEnabled);
 
@@ -247,16 +418,18 @@ useEffect(() => {
       modelPath: isGLTF ? modelPath : null,
       size,
       color,
+      material: material || "standard",
+      rotation,
       snapSize,
       collision: getCollisionType(selectedCategory),
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/templates`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(template)
+        body: JSON.stringify(template),
       });
 
       if (res.ok) {
@@ -277,7 +450,7 @@ useEffect(() => {
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/templates/${id}`, {
-        method: "DELETE"
+        method: "DELETE",
       });
 
       if (res.ok) {
@@ -285,7 +458,6 @@ useEffect(() => {
         setLoadedObject(null);
         setIsCreatingObject(false);
       }
-
     } catch {
       alert("Error deleting object.");
     }
@@ -295,10 +467,8 @@ useEffect(() => {
     return Object.values(savedObjects || {}).flat();
   }, [savedObjects]);
 
-
   return (
     <div className="ui">
-
       <MapEditorPanel
         placedObjects={placedObjects}
         setPlacedObjects={setPlacedObjects}
@@ -313,6 +483,8 @@ useEffect(() => {
         showGameSettings={showGameSettings}
         isCreatingObject={isCreatingObject}
         showMaps={showMaps}
+        showNpcManager={showNpcManager}
+        setShowNpcManager={setShowNpcManager}
       />
 
       {showGameSettings && (
@@ -336,10 +508,8 @@ useEffect(() => {
           setColor={setColor}
           rotation={rotation}
           setRotation={setRotation}
-
           position={positionToUse}
           setPosition={setPosition}
-
           snapSize={snapSize}
           setSnapSize={setSnapSize}
           objectName={objectName}
@@ -351,7 +521,6 @@ useEffect(() => {
           handleSaveObject={handleSaveObject}
           handleDeleteLoadedObject={handleDeleteLoadedObject}
           loadedObject={loadedObject}
-
           radToDeg={radToDeg}
           degToRad={degToRad}
           isVerticalDrag={isVerticalDrag}
@@ -366,13 +535,12 @@ useEffect(() => {
           isCreatingObject={isCreatingObject}
           setIsCreatingObject={setIsCreatingObject}
           setPreviewPosition={setPreviewPosition}
-
           selectedObjectId={selectedObjectId}
           updatePlacedObject={updatePlacedObject}
           selectedObject={selectedObject}
-
-          // ✅ REQUIRED FIX
           isDragging={isDragging}
+          material={material}
+          setMaterial={setMaterial}
         />
       )}
 
@@ -395,11 +563,37 @@ useEffect(() => {
         </div>
       )}
 
+      {showNpcManager && (
+        <NPCManagerPanel
+          npcs={npcs}
+          setNpcs={setNpcs}
+          selectedNpcId={selectedNpcId}
+          setSelectedNpcId={setSelectedNpcId}
+          focusCameraOnNpc={focusCameraOnNpc}
+          updateNpc={updateNpc}
+          setPendingNpc={setPendingNpc}
+          setPlacingWaypointForNpcId={setPlacingWaypointForNpcId}
+          placingWaypointForNpcId={placingWaypointForNpcId}
+          selectedWaypointIndex={selectedWaypointIndex}
+          setSelectedWaypointIndex={setSelectedWaypointIndex}
+        />
+      )}
+
       <Joystick onMove={handleJoystickMove} onEnd={handleJoystickEnd} />
-      <JumpButton isJumping={isJumping} jumpVelocity={jumpVelocity} jumpForce={jumpForce} />
-      <DeleteModeButton isDeleteMode={isDeleteMode} setIsDeleteMode={setIsDeleteMode} />
+      <JumpButton
+        isJumping={isJumping}
+        jumpVelocity={jumpVelocity}
+        jumpForce={jumpForce}
+      />
+      <DeleteModeButton
+        isDeleteMode={isDeleteMode}
+        setIsDeleteMode={setIsDeleteMode}
+      />
       <CameraModeButton cameraMode={cameraMode} setCameraMode={setCameraMode} />
-      <SnapToggleButton snappingEnabled={snappingEnabled} setSnappingEnabled={setSnappingEnabled} />
+      <SnapToggleButton
+        snappingEnabled={snappingEnabled}
+        setSnappingEnabled={setSnappingEnabled}
+      />
 
       <MeasureModeButton
         isMeasureMode={isMeasureMode}
@@ -411,7 +605,6 @@ useEffect(() => {
         isMeasureMode={isMeasureMode}
         clearMeasurements={clearMeasurements}
       />
-
     </div>
   );
 }
