@@ -341,7 +341,7 @@ export default function CameraController({
       camera.lookAt(0, 0, 0);
       orbitYaw.current = null;
       orbitPitch.current = null;
-      orbitTarget.current = new THREE.Vector3(20, 10, 40);
+      orbitTarget.current = new THREE.Vector3(35, 20, 40);
     }
   }, [cameraMode]);
 

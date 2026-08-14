@@ -39,14 +39,21 @@ export default function useMaps(setPlacedObjects, currentMapId, setCurrentMapId,
   const normalizeNpcFromApi = (npc) => {
     // Gracefully handle dialogue normalization from the API payload
     let normalizedDialogue = npc.dialogue;
+    const defaultSpeaker = npc.name || "NPC";
+
     if (typeof normalizedDialogue === "string") {
       normalizedDialogue = {
         startNodeId: "root",
         nodes: {
           root: {
             id: "root",
-            text: normalizedDialogue || "Hello traveler!",
-            choices: [],
+            speakerName: defaultSpeaker,
+            speakerData: {
+              [defaultSpeaker]: {
+                text: normalizedDialogue || "Hello traveler!",
+                choices: [],
+              }
+            },
             onEnter: [],
             onExit: [],
           },
@@ -58,12 +65,89 @@ export default function useMaps(setPlacedObjects, currentMapId, setCurrentMapId,
         nodes: {
           root: {
             id: "root",
-            text: "Hello traveler!",
-            choices: [],
+            speakerName: defaultSpeaker,
+            speakerData: {
+              [defaultSpeaker]: {
+                text: "Hello traveler!",
+                choices: [],
+              }
+            },
             onEnter: [],
             onExit: [],
           },
         },
+      };
+    } else {
+      // It is an object; let's clone and ensure nodes have speakerData maps
+      const nodes = {};
+      const rawNodes = normalizedDialogue.nodes || {};
+
+      Object.keys(rawNodes).forEach((nodeId) => {
+        const rawNode = rawNodes[nodeId];
+        if (rawNode && typeof rawNode === "object") {
+          const currentSpeaker = rawNode.speakerName || defaultSpeaker;
+          const speakerData = {};
+
+          if (rawNode.speakerData && typeof rawNode.speakerData === "object") {
+            Object.keys(rawNode.speakerData).forEach((spKey) => {
+              const spData = rawNode.speakerData[spKey];
+              speakerData[spKey] = {
+                text: typeof spData.text === "string" ? spData.text : "",
+                choices: Array.isArray(spData.choices)
+                  ? spData.choices.map((choice) => ({
+                      id: choice.id || Math.random().toString(36).substr(2, 9),
+                      text: typeof choice.text === "string" ? choice.text : "",
+                      nextNodeId: typeof choice.nextNodeId === "string" ? choice.nextNodeId : null,
+                      actions: Array.isArray(choice.actions) ? choice.actions : [],
+                    }))
+                  : [],
+              };
+            });
+          }
+
+          // Fallback legacy structure migration to speakerData map
+          if (Object.keys(speakerData).length === 0) {
+            speakerData[currentSpeaker] = {
+              text: typeof rawNode.text === "string" ? rawNode.text : "Hello traveler!",
+              choices: Array.isArray(rawNode.choices)
+                ? rawNode.choices.map((choice) => ({
+                    id: choice.id || Math.random().toString(36).substr(2, 9),
+                    text: typeof choice.text === "string" ? choice.text : "",
+                    nextNodeId: typeof choice.nextNodeId === "string" ? choice.nextNodeId : null,
+                    actions: Array.isArray(choice.actions) ? choice.actions : [],
+                  }))
+                : [],
+            };
+          }
+
+          nodes[nodeId] = {
+            id: nodeId,
+            speakerName: currentSpeaker,
+            speakerData: speakerData,
+            onEnter: Array.isArray(rawNode.onEnter) ? rawNode.onEnter : [],
+            onExit: Array.isArray(rawNode.onExit) ? rawNode.onExit : [],
+          };
+        }
+      });
+
+      if (!nodes.root) {
+        nodes.root = {
+          id: "root",
+          speakerName: defaultSpeaker,
+          speakerData: {
+            [defaultSpeaker]: {
+              text: "Hello traveler!",
+              choices: [],
+            }
+          },
+          onEnter: [],
+          onExit: [],
+        };
+      }
+
+      normalizedDialogue = {
+        startNodeId: typeof normalizedDialogue.startNodeId === "string" ? normalizedDialogue.startNodeId : "root",
+        nodes,
       };
     }
 
@@ -161,8 +245,8 @@ export default function useMaps(setPlacedObjects, currentMapId, setCurrentMapId,
       if (npcsRes && npcsRes.ok && setNpcs) {
         const npcData = await npcsRes.json();
         const normalizedNpcs = (
-  Array.isArray(npcData) ? npcData : []
-).map(normalizeNpcFromApi);
+          Array.isArray(npcData) ? npcData : []
+        ).map(normalizeNpcFromApi);
 
         setNpcs(normalizedNpcs);
       } else if (npcsRes) {

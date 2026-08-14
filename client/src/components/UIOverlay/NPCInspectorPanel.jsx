@@ -1,378 +1,320 @@
-// components/UIOverlay/NPCInspectorPanel.jsx
-import React, { useEffect, useRef, useState, useId } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  createDefaultDialogueNode,
+  createUniqueId,
+  normalizeDialogue,
+} from "./npcInspector/dialogue/dialogueUtils";
+import { normalizeWaypoint } from "./npcInspector/waypoints/waypointUtils";
+import NPCSettingsForm from "./npcInspector/settings/NPCSettingsForm";
+import WaypointEditor from "./npcInspector/waypoints/WaypointEditor";
+import DialogueNodeEditor from "./npcInspector/dialogue/DialogueNodeEditor";
 
-const DEFAULT_DIALOGUE_TEXT = "Hello traveler!";
-
-const getWaypointPos = (waypoint) => {
-  if (Array.isArray(waypoint)) return waypoint;
-  if (waypoint && Array.isArray(waypoint.pos)) return waypoint.pos;
-  return [0, 0, 0];
-};
-
-const getWaypointWaitTime = (waypoint, fallbackWaitTime = 0) => {
-  if (waypoint && !Array.isArray(waypoint) && typeof waypoint === "object") {
-    return waypoint.waitTime ?? fallbackWaitTime;
+function cloneChoiceList(choices) {
+  if (!Array.isArray(choices)) {
+    return [];
   }
 
-  return fallbackWaitTime;
-};
+  return choices.map((choice) => ({
+    ...choice,
+    actions: Array.isArray(choice.actions)
+      ? choice.actions.map((action) => ({ ...action }))
+      : [],
+    conditions: Array.isArray(choice.conditions)
+      ? choice.conditions.map((condition) => ({ ...condition }))
+      : [],
+  }));
+}
 
-const normalizeWaypoint = (waypoint, fallbackWaitTime = 0) => {
-  if (Array.isArray(waypoint)) {
-    return {
-      pos: [...waypoint],
-      waitTime: fallbackWaitTime,
-    };
+function normalizeDialogueActionForRuntime(action) {
+  if (!action || typeof action !== "object" || Array.isArray(action)) {
+    return action;
   }
 
-  if (waypoint && typeof waypoint === "object") {
-    return {
-      ...waypoint,
-      pos: Array.isArray(waypoint.pos) ? [...waypoint.pos] : [0, 0, 0],
-      waitTime: waypoint.waitTime ?? fallbackWaitTime,
-    };
-  }
+  const nextAction = { ...action };
 
-  return {
-    pos: [0, 0, 0],
-    waitTime: fallbackWaitTime,
-  };
-};
-
-const createUniqueId = (prefix = "item") => {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-};
-
-const createDefaultDialogueNode = (
-  id = "root",
-  text = DEFAULT_DIALOGUE_TEXT
-) => ({
-  id,
-  text,
-  choices: [],
-  onEnter: [],
-  onExit: [],
-});
-
-const createDefaultDialogue = (text = DEFAULT_DIALOGUE_TEXT) => ({
-  startNodeId: "root",
-  nodes: {
-    root: createDefaultDialogueNode("root", text),
-  },
-});
-
-const normalizeDialogueAction = (action) => {
-  if (typeof action === "string") {
-    return {
-      type: action,
-      targetId: "",
-      value: "",
-    };
-  }
-
-  if (action && typeof action === "object" && !Array.isArray(action)) {
-    const normalizedType =
-      typeof action.type === "string" && action.type.trim()
-        ? action.type
-        : "custom";
-
-    let normalizedValue =
-      action.value === null || action.value === undefined
-        ? ""
-        : action.value;
-
-    if (normalizedType === "summonNpc") {
-      if (
-        !normalizedValue ||
-        typeof normalizedValue !== "object" ||
-        Array.isArray(normalizedValue)
-      ) {
-        normalizedValue = {
-          count: 1,
-          offset: [1, 0, 1],
-          behavior: "idle",
-        };
-      } else {
-        normalizedValue = {
-          count:
-            typeof normalizedValue.count === "number"
-              ? normalizedValue.count
-              : 1,
-          offset: Array.isArray(normalizedValue.offset)
-            ? [
-                normalizedValue.offset[0] ?? 1,
-                normalizedValue.offset[1] ?? 0,
-                normalizedValue.offset[2] ?? 1,
-              ]
-            : [1, 0, 1],
-          behavior:
-            typeof normalizedValue.behavior === "string"
-              ? normalizedValue.behavior
-              : "idle",
-        };
-      }
-    }
-
-    return {
-      ...action,
-      type: normalizedType,
-      targetId:
-        action.targetId === null || action.targetId === undefined
-          ? ""
-          : String(action.targetId),
-      value: normalizedValue,
-    };
-  }
-
-  return {
-    type: "custom",
-    targetId: "",
-    value: "",
-  };
-};
-
-
-const normalizeDialogueChoice = (choice, index = 0) => {
-  if (typeof choice === "string") {
-    return {
-      id: createUniqueId(`choice_${index + 1}`),
-      text: choice,
-      nextNodeId: null,
-      actions: [],
-    };
-  }
-
-  if (choice && typeof choice === "object" && !Array.isArray(choice)) {
-    return {
-      ...choice,
-      id: choice.id || createUniqueId(`choice_${index + 1}`),
-      text: typeof choice.text === "string" ? choice.text : "",
-      nextNodeId:
-        typeof choice.nextNodeId === "string" && choice.nextNodeId.trim()
-          ? choice.nextNodeId
-          : null,
-      actions: Array.isArray(choice.actions)
-        ? choice.actions.map(normalizeDialogueAction)
-        : [],
-    };
-  }
-
-  return {
-    id: createUniqueId(`choice_${index + 1}`),
-    text: "",
-    nextNodeId: null,
-    actions: [],
-  };
-};
-
-const normalizeDialogueNode = (node, nodeId) => {
-  if (typeof node === "string") {
-    return createDefaultDialogueNode(nodeId, node);
-  }
-
-  if (node && typeof node === "object" && !Array.isArray(node)) {
-    return {
-      ...node,
-      id: nodeId,
-      text: typeof node.text === "string" ? node.text : "",
-      choices: Array.isArray(node.choices)
-        ? node.choices.map(normalizeDialogueChoice)
-        : [],
-      onEnter: Array.isArray(node.onEnter)
-        ? node.onEnter.map(normalizeDialogueAction)
-        : [],
-      onExit: Array.isArray(node.onExit)
-        ? node.onExit.map(normalizeDialogueAction)
-        : [],
-    };
-  }
-
-  return createDefaultDialogueNode(nodeId, "");
-};
-
-const normalizeDialogue = (dialogue) => {
-  if (typeof dialogue === "string") {
-    return createDefaultDialogue(dialogue || DEFAULT_DIALOGUE_TEXT);
+  if (
+    nextAction.temporaryDialogue == null &&
+    nextAction.temporaryDialogueText != null &&
+    nextAction.temporaryDialogueText !== ""
+  ) {
+    nextAction.temporaryDialogue = nextAction.temporaryDialogueText;
   }
 
   if (
-    !dialogue ||
-    typeof dialogue !== "object" ||
-    Array.isArray(dialogue)
+    nextAction.temporaryPlayerChoices == null &&
+    Array.isArray(nextAction.playerChoices) &&
+    nextAction.playerChoices.length > 0
   ) {
-    return createDefaultDialogue();
+    nextAction.temporaryPlayerChoices = cloneChoiceList(nextAction.playerChoices);
   }
 
-  const sourceNodes =
-    dialogue.nodes &&
-    typeof dialogue.nodes === "object" &&
-    !Array.isArray(dialogue.nodes)
-      ? dialogue.nodes
-      : {};
-
-  const normalizedNodes = {};
-
-  Object.entries(sourceNodes).forEach(([nodeId, node]) => {
-    if (!nodeId) return;
-    normalizedNodes[nodeId] = normalizeDialogueNode(node, nodeId);
-  });
-
-  if (Object.keys(normalizedNodes).length === 0) {
-    normalizedNodes.root = createDefaultDialogueNode();
+  if (
+    nextAction.temporaryPlayerChoices == null &&
+    Array.isArray(nextAction.temporaryChoices) &&
+    nextAction.temporaryChoices.length > 0
+  ) {
+    nextAction.temporaryPlayerChoices = cloneChoiceList(nextAction.temporaryChoices);
   }
 
-  const requestedStartNodeId =
-    typeof dialogue.startNodeId === "string"
-      ? dialogue.startNodeId
-      : "root";
-
-  const startNodeId = normalizedNodes[requestedStartNodeId]
-    ? requestedStartNodeId
-    : Object.keys(normalizedNodes)[0];
-
-  return {
-    ...dialogue,
-    startNodeId,
-    nodes: normalizedNodes,
-  };
-};
-
-function DialogueActionList({
-  title,
-  actions,
-  onChange,
-  allNpcs = [],
-  selectedNpcId = null,
-}) {
-
-
-
-  const normalizedActions = Array.isArray(actions)
-    ? actions.map(normalizeDialogueAction)
-    : [];
-
-  const addAction = () => {
-    onChange([
-      ...normalizedActions,
-      {
-        type: "custom",
-        targetId: "",
-        value: "",
-      },
-    ]);
-  };
-
-  const updateAction = (index, patch) => {
-    const updatedActions = normalizedActions.map((action, actionIndex) =>
-      actionIndex === index
-        ? {
-            ...action,
-            ...patch,
-          }
-        : action
-    );
-
-    onChange(updatedActions);
-  };
-
-  const removeAction = (index) => {
-    onChange(
-      normalizedActions.filter((_, actionIndex) => actionIndex !== index)
-    );
-  };
-
-  return (
-    <div className="dialogue-actions-editor">
-      <div className="dialogue-actions-header">
-        <span>{title}</span>
-
-        <button
-          type="button"
-          className="dialogue-small-button"
-          onClick={addAction}
-        >
-          + Action
-        </button>
-      </div>
-
-      {normalizedActions.length === 0 ? (
-        <div className="dialogue-empty-small">No actions.</div>
-      ) : (
-        normalizedActions.map((action, index) => (
-          <div
-            key={`${title}_${index}`}
-            className="dialogue-action-row"
-          >
-            <div className="dialogue-action-fields">
-  <label>
-  Action type
-  <select
-    value={action.type || "custom"}
-    onChange={(event) =>
-      updateAction(index, {
-        type: event.target.value,
-      })
-    }
-  >
-    <option value="custom">Custom</option>
-    <option value="startQuest">Start Quest</option>
-    <option value="completeQuest">Complete Quest</option>
-    <option value="setFlag">Set Flag</option>
-    <option value="clearFlag">Clear Flag</option>
-    <option value="giveItem">Give Item</option>
-    <option value="removeItem">Remove Item</option>
-    <option value="playSound">Play Sound</option>
-    <option value="changeBehavior">Change Behavior</option>
-    <option value="teleport">Teleport</option>
-    <option value="closeDialogue">Close Dialogue</option>
-    <option value="summonNpc">Summon NPC</option>
-  </select>
-</label>
-<label>
-  Target NPC
-  <select
-    value={action.targetId || ""}
-    onChange={(event) =>
-      updateAction(index, {
-        targetId: event.target.value,
-      })
-    }
-  >
-    <option value="">No target</option>
-    <option value="player">Player</option>
-
-    {allNpcs
-      .filter((npc) => {
-        const npcId = npc.npcId || npc.id || npc._id;
-        return npcId && npcId !== selectedNpcId;
-      })
-      .map((npc) => {
-        const npcId = npc.npcId || npc.id || npc._id;
-
-        return (
-          <option key={npcId} value={npcId}>
-            {npc.name || `NPC ${npcId}`}
-          </option>
-        );
-      })}
-  </select>
-</label>
-
-
-
-              {/* rest of fields stay the same */}
-            </div>
-          </div>
-        ))
-      )}
-
-      
-    </div>
-  );
+  return nextAction;
 }
 
+function normalizeDialogueForEditorRuntimeBridge(dialogueData) {
+  const normalized = normalizeDialogue(dialogueData);
+  const nextNodes = {};
 
+  const rawNodes =
+    dialogueData && typeof dialogueData === "object" && dialogueData.nodes
+      ? dialogueData.nodes
+      : {};
 
+  Object.entries(normalized.nodes).forEach(([nodeId, node]) => {
+    const originalNode = rawNodes[nodeId] || {};
+    const rawSpeakerName =
+      node.speakerName !== undefined ? node.speakerName : originalNode.speakerName;
+
+    nextNodes[nodeId] = {
+      ...node,
+      speakerName: typeof rawSpeakerName === "string" ? rawSpeakerName : "",
+      speakerData: originalNode.speakerData || {},
+      onEnter: Array.isArray(node.onEnter)
+        ? node.onEnter.map(normalizeDialogueActionForRuntime)
+        : [],
+      onExit: Array.isArray(node.onExit)
+        ? node.onExit.map(normalizeDialogueActionForRuntime)
+        : [],
+      choices: Array.isArray(node.choices)
+        ? node.choices.map((choice) => ({
+            ...choice,
+            actions: Array.isArray(choice.actions)
+              ? choice.actions.map(normalizeDialogueActionForRuntime)
+              : [],
+            conditions: Array.isArray(choice.conditions)
+              ? choice.conditions.map((condition) => ({ ...condition }))
+              : [],
+          }))
+        : [],
+    };
+  });
+
+  return {
+    ...normalized,
+    nodes: nextNodes,
+  };
+}
+
+function normalizeChoiceForSpeakerAggregation(choice) {
+  if (!choice || typeof choice !== "object") {
+    return {
+      text: "",
+      nextId: null,
+      nextNodeId: null,
+      actions: [],
+      conditions: [],
+    };
+  }
+
+  const nextNodeId = choice.nextNodeId || choice.nextId || null;
+
+  return {
+    ...choice,
+    text: choice.text || "",
+    nextId: nextNodeId,
+    nextNodeId,
+    actions: Array.isArray(choice.actions)
+      ? choice.actions.map(normalizeDialogueActionForRuntime)
+      : [],
+    conditions: Array.isArray(choice.conditions)
+      ? choice.conditions.map((condition) => ({ ...condition }))
+      : [],
+  };
+}
+
+/**
+ * Aggregate dialogue node sequence into runtime-consumable speaker payloads.
+ * useNPCBrain.js expects:
+ *   npc.talkerNames
+ *   npc.speakerData[speakerName].dialogue / dialogueText / playerChoices / ...
+ */
+function buildAggregatedSpeakerData(dialogue, targetTalkerNames = []) {
+  const aggregated = {};
+
+  const ensureSpeakerBucket = (speakerName) => {
+    if (!speakerName) return null;
+
+    if (!aggregated[speakerName]) {
+      aggregated[speakerName] = {
+        dialogues: [],
+        dialogue: null,
+        dialogueText: "",
+        playerChoices: [],
+      };
+    }
+
+    return aggregated[speakerName];
+  };
+
+  targetTalkerNames.forEach((name) => {
+    const trimmed = `${name ?? ""}`.trim();
+    if (trimmed) {
+      ensureSpeakerBucket(trimmed);
+    }
+  });
+
+  if (dialogue && typeof dialogue === "object" && dialogue.nodes) {
+    Object.entries(dialogue.nodes).forEach(([nodeId, node]) => {
+      if (!node || typeof node !== "object") return;
+
+      const candidateSpeakers = new Set();
+
+      if (node.speakerName && node.speakerName !== "default" && node.speakerName !== "undefined") {
+        candidateSpeakers.add(`${node.speakerName}`.trim());
+      }
+
+      if (node.speakerData && typeof node.speakerData === "object") {
+        Object.keys(node.speakerData).forEach((key) => {
+          if (key && key !== "default" && key !== "undefined") {
+            candidateSpeakers.add(`${key}`.trim());
+          }
+        });
+      }
+
+      candidateSpeakers.forEach((speakerName) => {
+        if (!speakerName) return;
+        const bucket = ensureSpeakerBucket(speakerName);
+        if (!bucket) return;
+
+        if (bucket.dialogues.some((d) => d.id === nodeId || d.nodeId === nodeId)) {
+          return;
+        }
+
+        const scopedSpeakerPayload =
+          node.speakerData &&
+          typeof node.speakerData === "object" &&
+          node.speakerData[speakerName] &&
+          typeof node.speakerData[speakerName] === "object"
+            ? node.speakerData[speakerName]
+            : null;
+
+        const resolvedText =
+          scopedSpeakerPayload?.text != null && scopedSpeakerPayload.text !== ""
+            ? scopedSpeakerPayload.text
+            : node.text != null
+              ? node.text
+              : "";
+
+        const resolvedChoices =
+          Array.isArray(scopedSpeakerPayload?.choices) && scopedSpeakerPayload.choices.length > 0
+            ? scopedSpeakerPayload.choices
+            : Array.isArray(node.choices)
+              ? node.choices
+              : [];
+
+        const normalizedChoices = resolvedChoices.map(normalizeChoiceForSpeakerAggregation);
+
+        const runtimeDialogueEntry = {
+          id: nodeId,
+          nodeId,
+          speakerName,
+          text: resolvedText,
+          dialogueText: resolvedText,
+          choices: normalizedChoices,
+          playerChoices: cloneChoiceList(normalizedChoices),
+          nextId: normalizedChoices[0]?.nextId ?? null,
+          nextNodeId: normalizedChoices[0]?.nextNodeId ?? null,
+          onEnter: Array.isArray(node.onEnter)
+            ? node.onEnter.map(normalizeDialogueActionForRuntime)
+            : [],
+          onExit: Array.isArray(node.onExit)
+            ? node.onExit.map(normalizeDialogueActionForRuntime)
+            : [],
+        };
+
+        bucket.dialogues.push(runtimeDialogueEntry);
+
+        if (bucket.dialogue == null || (!bucket.dialogueText && resolvedText)) {
+          bucket.dialogue = runtimeDialogueEntry;
+        }
+
+        if (!bucket.dialogueText && resolvedText) {
+          bucket.dialogueText = resolvedText;
+        }
+
+        if (
+          (!Array.isArray(bucket.playerChoices) || bucket.playerChoices.length === 0) &&
+          normalizedChoices.length > 0
+        ) {
+          bucket.playerChoices = cloneChoiceList(normalizedChoices);
+        }
+      });
+    });
+  }
+
+  // Ensure every speaker in targetTalkerNames has valid, non-empty dialogue payload metadata
+  const startNodeId =
+    dialogue?.startNodeId || (dialogue?.nodes ? Object.keys(dialogue.nodes)[0] : null);
+  const defaultNode = startNodeId && dialogue?.nodes ? dialogue.nodes[startNodeId] : null;
+
+  targetTalkerNames.forEach((speakerName) => {
+    const trimmed = `${speakerName ?? ""}`.trim();
+    if (!trimmed) return;
+
+    const bucket = aggregated[trimmed];
+    if (!bucket) return;
+
+    if (Array.isArray(bucket.dialogues) && bucket.dialogues.length > 0) {
+      const bestEntry =
+        bucket.dialogues.find((d) => d && d.text && d.text.trim().length > 0) ||
+        bucket.dialogues[0];
+
+      if (bestEntry) {
+        bucket.dialogue = bestEntry;
+        bucket.dialogueText = bestEntry.text || bestEntry.dialogueText || "";
+        if (!bucket.playerChoices || bucket.playerChoices.length === 0) {
+          bucket.playerChoices = cloneChoiceList(bestEntry.choices || []);
+        }
+      }
+    }
+
+    if ((!bucket.dialogue || !bucket.dialogueText) && defaultNode) {
+      const fallbackText =
+        defaultNode.speakerData?.[trimmed]?.text || defaultNode.text || "";
+      const fallbackChoices = Array.isArray(defaultNode.speakerData?.[trimmed]?.choices)
+        ? defaultNode.speakerData[trimmed].choices
+        : Array.isArray(defaultNode.choices)
+          ? defaultNode.choices
+          : [];
+      const normalizedChoices = fallbackChoices.map(normalizeChoiceForSpeakerAggregation);
+
+      const fallbackEntry = {
+        id: startNodeId,
+        nodeId: startNodeId,
+        speakerName: trimmed,
+        text: fallbackText,
+        dialogueText: fallbackText,
+        choices: normalizedChoices,
+        playerChoices: cloneChoiceList(normalizedChoices),
+        nextId: normalizedChoices[0]?.nextId ?? null,
+        nextNodeId: normalizedChoices[0]?.nextNodeId ?? null,
+        onEnter: Array.isArray(defaultNode.onEnter)
+          ? defaultNode.onEnter.map(normalizeDialogueActionForRuntime)
+          : [],
+        onExit: Array.isArray(defaultNode.onExit)
+          ? defaultNode.onExit.map(normalizeDialogueActionForRuntime)
+          : [],
+      };
+
+      if (!bucket.dialogue) bucket.dialogue = fallbackEntry;
+      if (!bucket.dialogueText) bucket.dialogueText = fallbackText;
+      if (!bucket.dialogues || bucket.dialogues.length === 0) bucket.dialogues = [fallbackEntry];
+      if (!bucket.playerChoices || bucket.playerChoices.length === 0) {
+        bucket.playerChoices = cloneChoiceList(normalizedChoices);
+      }
+    }
+  });
+
+  return aggregated;
+}
 
 export default function NPCInspectorPanel({
   selectedNpc,
@@ -384,17 +326,20 @@ export default function NPCInspectorPanel({
   allNpcs = [],
 }) {
   const fileInputRef = useRef(null);
-
-  const [selectedDialogueNodeId, setSelectedDialogueNodeId] =
-    useState("root");
+  const [selectedDialogueNodeId, setSelectedDialogueNodeId] = useState("root");
+  const [newSpeakerName, setNewSpeakerName] = useState("");
 
   const selectedNpcId =
-    selectedNpc?.npcId ||
-    selectedNpc?.id ||
-    selectedNpc?._id ||
-    null;
+    selectedNpc?.npcId || selectedNpc?.id || selectedNpc?._id || null;
 
-  const dialogue = normalizeDialogue(selectedNpc?.dialogue);
+  const dialogue = useMemo(
+    () => normalizeDialogueForEditorRuntimeBridge(selectedNpc?.dialogue),
+    [selectedNpc?.dialogue]
+  );
+
+  const handleInputKeyDown = (e) => {
+    e.stopPropagation();
+  };
 
   useEffect(() => {
     if (!selectedNpcId) {
@@ -402,45 +347,242 @@ export default function NPCInspectorPanel({
       return;
     }
 
-    const currentDialogue = normalizeDialogue(selectedNpc?.dialogue);
+    const currentDialogue = normalizeDialogueForEditorRuntimeBridge(
+      selectedNpc?.dialogue
+    );
 
     setSelectedDialogueNodeId((currentNodeId) => {
       if (currentDialogue.nodes[currentNodeId]) {
         return currentNodeId;
       }
-
       return currentDialogue.startNodeId;
     });
   }, [selectedNpcId, selectedNpc?.dialogue]);
 
-  if (!selectedNpc) return null;
+  const talkerNames = useMemo(() => {
+    if (!selectedNpc) return [];
+
+    const definedTalkerNames = Array.isArray(selectedNpc.talkerNames)
+      ? selectedNpc.talkerNames
+      : [];
+
+    const discoveredSpeakers = new Set(definedTalkerNames);
+
+    Object.values(dialogue.nodes).forEach((node) => {
+      if (node?.speakerData && typeof node.speakerData === "object") {
+        Object.keys(node.speakerData).forEach((key) => {
+          if (key && key !== "default" && key !== "undefined") {
+            discoveredSpeakers.add(key);
+          }
+        });
+      }
+      if (
+        node?.speakerName &&
+        node.speakerName !== "default" &&
+        node.speakerName !== ""
+      ) {
+        discoveredSpeakers.add(node.speakerName);
+      }
+    });
+
+    return Array.from(discoveredSpeakers)
+      .map((name) => `${name ?? ""}`.trim())
+      .filter(Boolean);
+  }, [selectedNpc, dialogue.nodes]);
+
+  const persistTalkerNames = (updatedTalkerNames) => {
+    if (!selectedNpc?.id) return;
+
+    const safeTalkerNames = Array.isArray(updatedTalkerNames)
+      ? updatedTalkerNames
+          .map((name) => `${name ?? ""}`.trim())
+          .filter(Boolean)
+      : [];
+
+    const aggregatedSpeakerData = buildAggregatedSpeakerData(
+      dialogue,
+      safeTalkerNames
+    );
+
+    updateNpc(selectedNpc.id, {
+      talkerNames: safeTalkerNames,
+      speakerData: aggregatedSpeakerData,
+      hasTalkersList: safeTalkerNames.length > 0,
+      currentSpeakerIndex:
+        typeof selectedNpc.currentSpeakerIndex === "number"
+          ? Math.min(
+              Math.max(selectedNpc.currentSpeakerIndex, 0),
+              Math.max(safeTalkerNames.length - 1, 0)
+            )
+          : 0,
+      dialogue: {
+        ...(selectedNpc.dialogue || {}),
+        ...(dialogue || {}),
+        talkerNames: safeTalkerNames,
+        speakerData: aggregatedSpeakerData,
+      },
+    });
+  };
+
+  useEffect(() => {
+    if (!selectedNpc?.id) return;
+
+    const currentTop = Array.isArray(selectedNpc.talkerNames)
+      ? selectedNpc.talkerNames.map((v) => `${v ?? ""}`.trim()).filter(Boolean)
+      : [];
+
+    const derived = Array.isArray(talkerNames)
+      ? talkerNames.map((v) => `${v ?? ""}`.trim()).filter(Boolean)
+      : [];
+
+    const same =
+      currentTop.length === derived.length &&
+      currentTop.every((v, i) => v === derived[i]);
+
+    if (!same && derived.length > 0) {
+      persistTalkerNames(derived);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNpc?.id, talkerNames]);
+
+  useEffect(() => {
+    if (!selectedNpc) return;
+
+    const speakerSequence = talkerNames.map((name) => {
+      const data = selectedNpc.speakerData?.[name] || {
+        dialogues: [],
+        dialogue: null,
+        dialogueText: "",
+        playerChoices: [],
+      };
+
+      return {
+        speaker: name,
+        dialoguesCount: Array.isArray(data.dialogues) ? data.dialogues.length : 0,
+        hasRuntimeDialoguePayload: Boolean(
+          data.priorityDialogue != null ||
+            data.temporaryDialogue != null ||
+            data.temporaryDialogueText != null ||
+            data.temporaryDialogueTree != null ||
+            data.temporaryDialogueOptions != null ||
+            data.temporaryPlayerChoices != null ||
+            data.dialogue != null ||
+            data.dialogueTree != null ||
+            data.dialogueText != null ||
+            data.dialogueOptions != null ||
+            data.playerChoices != null
+        ),
+        dialogueText: data.dialogueText || data.dialogue?.text || "",
+        playerChoicesCount: Array.isArray(data.playerChoices)
+          ? data.playerChoices.length
+          : Array.isArray(data.dialogue?.choices)
+            ? data.dialogue.choices.length
+            : 0,
+        dialogues: data.dialogues || [],
+      };
+    });
+
+    console.log(`[NPCInspectorPanel] Dialogue Speakers Sequence JSON Updated:`, {
+      count: talkerNames.length,
+      npcId: selectedNpcId,
+      npcName: selectedNpc.name,
+      hasTalkersList:
+        Array.isArray(selectedNpc.talkerNames) &&
+        selectedNpc.talkerNames.length > 0,
+      sequenceJson: speakerSequence,
+    });
+  }, [selectedNpc, talkerNames, selectedNpcId]);
+
+  if (!selectedNpc) {
+    return null;
+  }
 
   const waypoints = Array.isArray(selectedNpc.waypoints)
     ? selectedNpc.waypoints
     : [];
-
   const dialogueNodeIds = Object.keys(dialogue.nodes);
 
   const activeDialogueNodeId =
-    selectedDialogueNodeId &&
-    dialogue.nodes[selectedDialogueNodeId]
+    selectedDialogueNodeId && dialogue.nodes[selectedDialogueNodeId]
       ? selectedDialogueNodeId
       : dialogue.startNodeId;
 
-  const activeDialogueNode =
-    dialogue.nodes[activeDialogueNodeId] ||
-    dialogue.nodes[dialogueNodeIds[0]];
+  const rawActiveDialogueNode =
+    dialogue.nodes[activeDialogueNodeId] || dialogue.nodes[dialogueNodeIds[0]];
+
+  let activeDialogueNode = null;
+  if (rawActiveDialogueNode) {
+    const speakerKey = rawActiveDialogueNode.speakerName || "default";
+    const speakerScopedPayload =
+      rawActiveDialogueNode.speakerData?.[speakerKey] || {
+        text: rawActiveDialogueNode.text || "",
+        choices: rawActiveDialogueNode.choices || [],
+      };
+
+    activeDialogueNode = {
+      ...rawActiveDialogueNode,
+      text: speakerScopedPayload.text,
+      choices: speakerScopedPayload.choices,
+    };
+  }
 
   const updateDialogue = (nextDialogue) => {
+    const normalized = normalizeDialogueForEditorRuntimeBridge(nextDialogue);
+    const aggregatedSpeakerData = buildAggregatedSpeakerData(normalized, talkerNames);
+
     updateNpc(selectedNpc.id, {
-      dialogue: normalizeDialogue(nextDialogue),
+      dialogue: {
+        ...normalized,
+        talkerNames,
+        speakerData: aggregatedSpeakerData,
+      },
+      talkerNames,
+      speakerData: aggregatedSpeakerData,
+      hasTalkersList: talkerNames.length > 0,
+      currentSpeakerIndex:
+        typeof selectedNpc.currentSpeakerIndex === "number"
+          ? Math.min(
+              Math.max(selectedNpc.currentSpeakerIndex, 0),
+              Math.max(talkerNames.length - 1, 0)
+            )
+          : 0,
     });
   };
 
   const updateDialogueNode = (nodeId, patch) => {
     const currentNode = dialogue.nodes[nodeId];
+    if (!currentNode) {
+      return;
+    }
 
-    if (!currentNode) return;
+    const speakerKey =
+      patch.speakerName !== undefined
+        ? patch.speakerName
+        : currentNode.speakerName || "default";
+
+    let updatedSpeakerData = { ...(currentNode.speakerData || {}) };
+
+    if (patch.text !== undefined || patch.choices !== undefined || patch.speakerName !== undefined) {
+      updatedSpeakerData[speakerKey] = {
+        text:
+          patch.text !== undefined
+            ? patch.text
+            : updatedSpeakerData[speakerKey]?.text || currentNode.text || "",
+        choices:
+          patch.choices !== undefined
+            ? patch.choices
+            : updatedSpeakerData[speakerKey]?.choices || currentNode.choices || [],
+      };
+    }
+
+    const activeText =
+      patch.text !== undefined
+        ? patch.text
+        : updatedSpeakerData[speakerKey]?.text || currentNode.text || "";
+    const activeChoices =
+      patch.choices !== undefined
+        ? patch.choices
+        : updatedSpeakerData[speakerKey]?.choices || currentNode.choices || [];
 
     updateDialogue({
       ...dialogue,
@@ -449,20 +591,51 @@ export default function NPCInspectorPanel({
         [nodeId]: {
           ...currentNode,
           ...patch,
+          text: activeText,
+          choices: activeChoices,
+          speakerData: updatedSpeakerData,
           id: nodeId,
         },
       },
     });
   };
 
+  const handleSpeakerChange = (newSpeaker) => {
+    if (!rawActiveDialogueNode) return;
+    const speakerKey = newSpeaker || "default";
+
+    const savedData = rawActiveDialogueNode.speakerData?.[speakerKey] || {
+      text: rawActiveDialogueNode.text || "",
+      choices: rawActiveDialogueNode.choices || [],
+    };
+
+    updateDialogueNode(activeDialogueNodeId, {
+      speakerName: newSpeaker,
+      text: savedData.text,
+      choices: savedData.choices,
+    });
+  };
+
   const addDialogueNode = () => {
     const newNodeId = createUniqueId("node");
+    const defaultSpeakerName = talkerNames[0] || "";
 
     updateDialogue({
       ...dialogue,
       nodes: {
         ...dialogue.nodes,
-        [newNodeId]: createDefaultDialogueNode(newNodeId, ""),
+        [newNodeId]: {
+          ...createDefaultDialogueNode(newNodeId, ""),
+          speakerName: defaultSpeakerName,
+          speakerData: defaultSpeakerName
+            ? {
+                [defaultSpeakerName]: {
+                  text: "",
+                  choices: [],
+                },
+              }
+            : {},
+        },
       },
     });
 
@@ -471,8 +644,9 @@ export default function NPCInspectorPanel({
 
   const duplicateDialogueNode = (nodeId) => {
     const sourceNode = dialogue.nodes[nodeId];
-
-    if (!sourceNode) return;
+    if (!sourceNode) {
+      return;
+    }
 
     const newNodeId = createUniqueId("node");
 
@@ -481,6 +655,9 @@ export default function NPCInspectorPanel({
       id: createUniqueId(`choice_${index + 1}`),
       actions: Array.isArray(choice.actions)
         ? choice.actions.map((action) => ({ ...action }))
+        : [],
+      conditions: Array.isArray(choice.conditions)
+        ? choice.conditions.map((condition) => ({ ...condition }))
         : [],
     }));
 
@@ -491,12 +668,14 @@ export default function NPCInspectorPanel({
         [newNodeId]: {
           ...sourceNode,
           id: newNodeId,
-          text: sourceNode.text
-            ? `${sourceNode.text} (Copy)`
-            : "",
+          text: sourceNode.text ? `${sourceNode.text} (Copy)` : "",
           choices: duplicatedChoices,
           onEnter: sourceNode.onEnter.map((action) => ({ ...action })),
           onExit: sourceNode.onExit.map((action) => ({ ...action })),
+          speakerName: sourceNode.speakerName || talkerNames[0] || "",
+          speakerData: sourceNode.speakerData
+            ? JSON.parse(JSON.stringify(sourceNode.speakerData))
+            : {},
         },
       },
     });
@@ -507,7 +686,9 @@ export default function NPCInspectorPanel({
   const renameDialogueNode = (oldNodeId, requestedNodeId) => {
     const newNodeId = requestedNodeId.trim();
 
-    if (!newNodeId || newNodeId === oldNodeId) return;
+    if (!newNodeId || newNodeId === oldNodeId) {
+      return;
+    }
 
     if (dialogue.nodes[newNodeId]) {
       alert(`A dialogue node with ID "${newNodeId}" already exists.`);
@@ -525,9 +706,7 @@ export default function NPCInspectorPanel({
         choices: node.choices.map((choice) => ({
           ...choice,
           nextNodeId:
-            choice.nextNodeId === oldNodeId
-              ? newNodeId
-              : choice.nextNodeId,
+            choice.nextNodeId === oldNodeId ? newNodeId : choice.nextNodeId,
         })),
       };
     });
@@ -535,9 +714,7 @@ export default function NPCInspectorPanel({
     updateDialogue({
       ...dialogue,
       startNodeId:
-        dialogue.startNodeId === oldNodeId
-          ? newNodeId
-          : dialogue.startNodeId,
+        dialogue.startNodeId === oldNodeId ? newNodeId : dialogue.startNodeId,
       nodes: renamedNodes,
     });
 
@@ -560,29 +737,23 @@ export default function NPCInspectorPanel({
 
     const remainingNodes = {};
 
-    Object.entries(dialogue.nodes).forEach(
-      ([existingNodeId, existingNode]) => {
-        if (existingNodeId === nodeId) return;
-
-        remainingNodes[existingNodeId] = {
-          ...existingNode,
-          choices: existingNode.choices.map((choice) => ({
-            ...choice,
-            nextNodeId:
-              choice.nextNodeId === nodeId
-                ? null
-                : choice.nextNodeId,
-          })),
-        };
+    Object.entries(dialogue.nodes).forEach(([existingNodeId, existingNode]) => {
+      if (existingNodeId === nodeId) {
+        return;
       }
-    );
+
+      remainingNodes[existingNodeId] = {
+        ...existingNode,
+        choices: existingNode.choices.map((choice) => ({
+          ...choice,
+          nextNodeId: choice.nextNodeId === nodeId ? null : choice.nextNodeId,
+        })),
+      };
+    });
 
     const remainingNodeIds = Object.keys(remainingNodes);
-
     const nextStartNodeId =
-      dialogue.startNodeId === nodeId
-        ? remainingNodeIds[0]
-        : dialogue.startNodeId;
+      dialogue.startNodeId === nodeId ? remainingNodeIds[0] : dialogue.startNodeId;
 
     updateDialogue({
       ...dialogue,
@@ -594,7 +765,9 @@ export default function NPCInspectorPanel({
   };
 
   const setDialogueStartNode = (nodeId) => {
-    if (!dialogue.nodes[nodeId]) return;
+    if (!dialogue.nodes[nodeId]) {
+      return;
+    }
 
     updateDialogue({
       ...dialogue,
@@ -604,8 +777,9 @@ export default function NPCInspectorPanel({
 
   const addDialogueChoice = (nodeId) => {
     const currentNode = dialogue.nodes[nodeId];
-
-    if (!currentNode) return;
+    if (!currentNode) {
+      return;
+    }
 
     updateDialogueNode(nodeId, {
       choices: [
@@ -615,6 +789,7 @@ export default function NPCInspectorPanel({
           text: "New response",
           nextNodeId: null,
           actions: [],
+          conditions: [],
         },
       ],
     });
@@ -622,16 +797,12 @@ export default function NPCInspectorPanel({
 
   const updateDialogueChoice = (nodeId, choiceIndex, patch) => {
     const currentNode = dialogue.nodes[nodeId];
-
-    if (!currentNode) return;
+    if (!currentNode) {
+      return;
+    }
 
     const updatedChoices = currentNode.choices.map((choice, index) =>
-      index === choiceIndex
-        ? {
-            ...choice,
-            ...patch,
-          }
-        : choice
+      index === choiceIndex ? { ...choice, ...patch } : choice
     );
 
     updateDialogueNode(nodeId, {
@@ -641,35 +812,27 @@ export default function NPCInspectorPanel({
 
   const deleteDialogueChoice = (nodeId, choiceIndex) => {
     const currentNode = dialogue.nodes[nodeId];
-
-    if (!currentNode) return;
+    if (!currentNode) {
+      return;
+    }
 
     updateDialogueNode(nodeId, {
-      choices: currentNode.choices.filter(
-        (_, index) => index !== choiceIndex
-      ),
+      choices: currentNode.choices.filter((_, index) => index !== choiceIndex),
     });
   };
 
   const moveDialogueChoice = (nodeId, choiceIndex, direction) => {
     const currentNode = dialogue.nodes[nodeId];
+    if (!currentNode) {
+      return;
+    }
 
-    if (!currentNode) return;
-
-    const targetIndex =
-      direction === "up"
-        ? choiceIndex - 1
-        : choiceIndex + 1;
-
-    if (
-      targetIndex < 0 ||
-      targetIndex >= currentNode.choices.length
-    ) {
+    const targetIndex = direction === "up" ? choiceIndex - 1 : choiceIndex + 1;
+    if (targetIndex < 0 || targetIndex >= currentNode.choices.length) {
       return;
     }
 
     const updatedChoices = [...currentNode.choices];
-
     [updatedChoices[choiceIndex], updatedChoices[targetIndex]] = [
       updatedChoices[targetIndex],
       updatedChoices[choiceIndex],
@@ -682,13 +845,11 @@ export default function NPCInspectorPanel({
 
   const handleTextureUpload = (event) => {
     const file = event.target.files[0];
+    if (!file) {
+      return;
+    }
 
-    if (!file) return;
-
-    if (
-      !file.type.match("image/jpeg") &&
-      !file.type.match("image/png")
-    ) {
+    if (!file.type.match("image/jpeg") && !file.type.match("image/png")) {
       alert("Please upload a JPEG or PNG image.");
       return;
     }
@@ -731,11 +892,7 @@ export default function NPCInspectorPanel({
     }
   };
 
-  const handleNpcBaseStringChange = (
-    section,
-    field,
-    value
-  ) => {
+  const handleNpcBaseStringChange = (section, field, value) => {
     if (section) {
       updateNpc(selectedNpc.id, {
         [section]: {
@@ -751,12 +908,8 @@ export default function NPCInspectorPanel({
   };
 
   const handleReactionChange = (targetId, behavior) => {
-    const currentReactions =
-      selectedNpc.detection?.reactions || {};
-
-    const newReactions = {
-      ...currentReactions,
-    };
+    const currentReactions = selectedNpc.detection?.reactions || {};
+    const newReactions = { ...currentReactions };
 
     if (behavior === "default") {
       delete newReactions[targetId];
@@ -772,11 +925,7 @@ export default function NPCInspectorPanel({
     });
   };
 
-  const handleWaypointChange = (
-    index,
-    coordinateIndex,
-    value
-  ) => {
+  const handleWaypointChange = (index, coordinateIndex, value) => {
     const updatedWaypoints = [...waypoints];
 
     const normalized = normalizeWaypoint(
@@ -800,11 +949,7 @@ export default function NPCInspectorPanel({
       selectedNpc.movement?.waitTime ?? 0
     );
 
-    normalized.waitTime = Math.max(
-      0,
-      parseFloat(value) || 0
-    );
-
+    normalized.waitTime = Math.max(0, parseFloat(value) || 0);
     updatedWaypoints[index] = normalized;
 
     updateNpc(selectedNpc.id, {
@@ -817,18 +962,14 @@ export default function NPCInspectorPanel({
       (_, waypointIndex) => waypointIndex !== index
     );
 
-    let newTargetIndex =
-      selectedNpc.currentWaypointIndex ?? 0;
+    let newTargetIndex = selectedNpc.currentWaypointIndex ?? 0;
 
     if (updatedWaypoints.length === 0) {
       newTargetIndex = 0;
     } else if (newTargetIndex >= updatedWaypoints.length) {
       newTargetIndex = updatedWaypoints.length - 1;
     } else if (newTargetIndex === index) {
-      newTargetIndex = Math.min(
-        index,
-        updatedWaypoints.length - 1
-      );
+      newTargetIndex = Math.min(index, updatedWaypoints.length - 1);
     } else if (newTargetIndex > index) {
       newTargetIndex -= 1;
     }
@@ -841,34 +982,27 @@ export default function NPCInspectorPanel({
     if (selectedWaypointIndex === index) {
       setSelectedWaypointIndex(null);
     } else if (selectedWaypointIndex > index) {
-      setSelectedWaypointIndex(
-        selectedWaypointIndex - 1
-      );
+      setSelectedWaypointIndex(selectedWaypointIndex - 1);
     }
   };
 
   const moveWaypoint = (index, direction) => {
-    if (direction === "up" && index === 0) return;
-
-    if (
-      direction === "down" &&
-      index === waypoints.length - 1
-    ) {
+    if (direction === "up" && index === 0) {
       return;
     }
 
-    const targetIndex =
-      direction === "up" ? index - 1 : index + 1;
+    if (direction === "down" && index === waypoints.length - 1) {
+      return;
+    }
 
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
     const updatedWaypoints = [...waypoints];
 
     const temporaryWaypoint = updatedWaypoints[index];
     updatedWaypoints[index] = updatedWaypoints[targetIndex];
     updatedWaypoints[targetIndex] = temporaryWaypoint;
 
-    let newTargetIndex =
-      selectedNpc.currentWaypointIndex ?? 0;
-
+    let newTargetIndex = selectedNpc.currentWaypointIndex ?? 0;
     if (newTargetIndex === index) {
       newTargetIndex = targetIndex;
     } else if (newTargetIndex === targetIndex) {
@@ -900,16 +1034,9 @@ export default function NPCInspectorPanel({
     };
 
     const updatedWaypoints = [...waypoints];
+    updatedWaypoints.splice(index + 1, 0, newWaypoint);
 
-    updatedWaypoints.splice(
-      index + 1,
-      0,
-      newWaypoint
-    );
-
-    let newTargetIndex =
-      selectedNpc.currentWaypointIndex ?? 0;
-
+    let newTargetIndex = selectedNpc.currentWaypointIndex ?? 0;
     if (newTargetIndex > index) {
       newTargetIndex += 1;
     }
@@ -928,1030 +1055,215 @@ export default function NPCInspectorPanel({
     });
   };
 
-  const movementMode =
-    selectedNpc.movement?.mode || "idle";
+  const addSpeakerName = () => {
+    const trimmed = newSpeakerName.trim();
+    if (!trimmed) return;
+
+    const updated = [...talkerNames, trimmed];
+    persistTalkerNames(updated);
+    setNewSpeakerName("");
+  };
+
+  const removeSpeakerName = (indexToRemove) => {
+    const updated = talkerNames.filter((_, idx) => idx !== indexToRemove);
+    persistTalkerNames(updated);
+  };
+
+  const updateSpeakerNameAt = (index, value) => {
+    const updated = [...talkerNames];
+    updated[index] = value;
+    persistTalkerNames(updated);
+  };
+
+  const moveSpeakerName = (index, direction) => {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= talkerNames.length) return;
+
+    const updated = [...talkerNames];
+    const temp = updated[index];
+    updated[index] = updated[targetIndex];
+    updated[targetIndex] = temp;
+
+    persistTalkerNames(updated);
+  };
+
+  const movementMode = selectedNpc.movement?.mode || "idle";
 
   return (
-    <div className="npc-inspector-panel">
-      <div className="section-title">NPC Settings</div>
+    <div className="npc-inspector-panel" onKeyDown={handleInputKeyDown}>
+      <NPCSettingsForm
+        selectedNpc={selectedNpc}
+        selectedNpcId={selectedNpcId}
+        allNpcs={allNpcs}
+        fileInputRef={fileInputRef}
+        movementMode={movementMode}
+        handleTextureUpload={handleTextureUpload}
+        removeTexture={removeTexture}
+        handleNpcBaseChange={handleNpcBaseChange}
+        handleNpcBaseStringChange={handleNpcBaseStringChange}
+        handleReactionChange={handleReactionChange}
+        updateNpc={updateNpc}
+      />
 
-      <div className="npc-settings-grid">
-        <div className="settings-field">
-          <label>NPC Name</label>
+      <WaypointEditor
+        selectedNpc={selectedNpc}
+        movementMode={movementMode}
+        waypoints={waypoints}
+        selectedWaypointIndex={selectedWaypointIndex}
+        setSelectedWaypointIndex={setSelectedWaypointIndex}
+        setPlacingWaypointForNpcId={setPlacingWaypointForNpcId}
+        placingWaypointForNpcId={placingWaypointForNpcId}
+        handleWaypointChange={handleWaypointChange}
+        handleWaypointWaitTimeChange={handleWaypointWaitTimeChange}
+        moveWaypoint={moveWaypoint}
+        duplicateWaypoint={duplicateWaypoint}
+        setAsCurrentTarget={setAsCurrentTarget}
+        deleteWaypoint={deleteWaypoint}
+      />
 
-          <input
-            type="text"
-            value={selectedNpc.name || ""}
-            onChange={(event) =>
-              updateNpc(selectedNpc.id, {
-                name: event.target.value,
-              })
-            }
-          />
-        </div>
-
-        <div className="settings-field">
-          <label>
-            NPC Face/Sprite Texture (JPEG/PNG)
-          </label>
-
-          <div
-            style={{
-              display: "flex",
-              gap: "5px",
-              alignItems: "center",
-              marginTop: "4px",
-            }}
-          >
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept="image/png, image/jpeg"
-              onChange={handleTextureUpload}
-              style={{ display: "none" }}
-            />
-
-            <button
-              type="button"
-              onClick={() =>
-                fileInputRef.current?.click()
-              }
-              style={{
-                flex: 1,
-                padding: "6px",
-                fontSize: "12px",
-                cursor: "pointer",
-                background: "#4b5563",
-                color: "#fff",
-                border: "none",
-                borderRadius: "4px",
-              }}
-            >
-              {selectedNpc.textureUrl
-                ? "🔄 Change Texture"
-                : "📤 Upload Texture"}
-            </button>
-
-            {selectedNpc.textureUrl && (
-              <button
-                type="button"
-                onClick={removeTexture}
-                style={{
-                  padding: "6px 10px",
-                  fontSize: "12px",
-                  cursor: "pointer",
-                  background: "#ef4444",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "4px",
-                }}
-                title="Remove texture"
-              >
-                🗑️
-              </button>
-            )}
-          </div>
-
-          {selectedNpc.textureUrl && (
-            <div
-              style={{
-                marginTop: "8px",
-                textAlign: "center",
-              }}
-            >
-              <img
-                src={selectedNpc.textureUrl}
-                alt="NPC Preview"
-                style={{
-                  width: "50px",
-                  height: "50px",
-                  objectFit: "cover",
-                  borderRadius: "4px",
-                  border: "1px solid #ccc",
-                }}
-              />
-            </div>
-          )}
-        </div>
-
-        <div
-          className="section-title"
-          style={{ marginTop: "5px" }}
-        >
-          Movement
-        </div>
-
-        <div className="settings-field">
-          <label>Movement Mode</label>
-
-          <select
-            value={movementMode}
-            onChange={(event) =>
-              handleNpcBaseStringChange(
-                "movement",
-                "mode",
-                event.target.value
-              )
-            }
-          >
-            <option value="idle">Idle</option>
-            <option value="static">Static</option>
-            <option value="wander">Wander</option>
-            <option value="patrol">Patrol</option>
-          </select>
-        </div>
-
-        <div className="settings-field">
-          <label>Movement Speed</label>
-
-          <input
-            type="number"
-            step="0.1"
-            min="0"
-            value={selectedNpc.movement?.speed ?? 2}
-            onChange={(event) =>
-              handleNpcBaseChange(
-                "movement",
-                "speed",
-                event.target.value
-              )
-            }
-          />
-        </div>
-
-        <div className="settings-field">
-          <label>
-            Wait Time at Nodes / Wander Pause (sec)
-          </label>
-
-          <input
-            type="number"
-            step="0.5"
-            min="0"
-            value={selectedNpc.movement?.waitTime ?? 0}
-            onChange={(event) =>
-              handleNpcBaseChange(
-                "movement",
-                "waitTime",
-                event.target.value
-              )
-            }
-          />
-        </div>
-
-        {movementMode === "wander" && (
-          <div className="settings-field">
-            <label>Wander Radius</label>
-
-            <input
-              type="number"
-              step="0.5"
-              min="0.5"
-              value={
-                selectedNpc.movement?.wanderRadius ??
-                selectedNpc.wanderRadius ??
-                5
-              }
-              onChange={(event) =>
-                handleNpcBaseChange(
-                  "movement",
-                  "wanderRadius",
-                  event.target.value
-                )
-              }
-            />
-          </div>
-        )}
-
-        <div className="settings-field">
-          <label>Detection Radius</label>
-
-          <input
-            type="number"
-            step="0.5"
-            min="0"
-            value={selectedNpc.detection?.radius ?? 6}
-            onChange={(event) =>
-              handleNpcBaseChange(
-                "detection",
-                "radius",
-                event.target.value
-              )
-            }
-          />
-        </div>
-
-        <div
-          className="section-title"
-          style={{ marginTop: "5px" }}
-        >
-          Detection & AI Reactions
-        </div>
-
-        <div className="settings-field">
-          <label>Default Detection Target</label>
-
-          <select
-            value={
-              selectedNpc.detection?.targetType || "both"
-            }
-            onChange={(event) =>
-              handleNpcBaseStringChange(
-                "detection",
-                "targetType",
-                event.target.value
-              )
-            }
-          >
-            <option value="player">Player Only</option>
-            <option value="npc">NPCs Only</option>
-            <option value="both">
-              Player + NPCs (Closest)
-            </option>
-          </select>
-        </div>
-
-        <div className="settings-field">
-          <label>Default Reaction Behavior</label>
-
-          <select
-            value={
-              selectedNpc.detection?.behavior || "look"
-            }
-            onChange={(event) =>
-              handleNpcBaseStringChange(
-                "detection",
-                "behavior",
-                event.target.value
-              )
-            }
-          >
-            <option value="look">Look At Target</option>
-            <option value="chase">Chase Target</option>
-            <option value="flee">
-              Flee From Target
-            </option>
-            <option value="ignore">
-              Ignore (Keep Moving)
-            </option>
-          </select>
-        </div>
-
-        <div
-          className="section-title"
-          style={{ marginTop: "5px" }}
-        >
-          Relationship & Reaction Targets
-        </div>
-
-        <div className="settings-field">
-          <label>Player Reaction</label>
-
-          <select
-            value={
-              selectedNpc.detection?.reactions?.player ||
-              "default"
-            }
-            onChange={(event) =>
-              handleReactionChange(
-                "player",
-                event.target.value
-              )
-            }
-          >
-            <option value="default">
-              Default (
-              {selectedNpc.detection?.behavior || "look"})
-            </option>
-            <option value="look">Look</option>
-            <option value="chase">Chase</option>
-            <option value="flee">Flee</option>
-            <option value="ignore">Ignore</option>
-          </select>
-        </div>
-
-        {allNpcs
-          .filter((npc) => {
-            const npcId =
-              npc.npcId || npc.id || npc._id;
-
-            return npcId && npcId !== selectedNpcId;
-          })
-          .map((npc) => {
-            const npcId =
-              npc.npcId || npc.id || npc._id;
-
-            return (
-              <div
-                key={npcId}
-                className="settings-field"
-              >
-                <label>
-                  vs {npc.name || `NPC ${npcId}`}
-                </label>
-
-                <select
-                  value={
-                    selectedNpc.detection?.reactions?.[
-                      npcId
-                    ] || "default"
-                  }
-                  onChange={(event) =>
-                    handleReactionChange(
-                      npcId,
-                      event.target.value
-                    )
-                  }
-                >
-                  <option value="default">
-                    Default (
-                    {selectedNpc.detection?.behavior ||
-                      "look"}
-                    )
-                  </option>
-                  <option value="look">Look</option>
-                  <option value="chase">Chase</option>
-                  <option value="flee">Flee</option>
-                  <option value="ignore">Ignore</option>
-                </select>
-              </div>
-            );
-          })}
-
-        {(selectedNpc.detection?.behavior === "chase" ||
-          selectedNpc.detection?.behavior ===
-            "attack") && (
-          <div className="settings-field">
-            <label>Chase Stop Distance</label>
-
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              value={
-                selectedNpc.detection?.stopDistance ?? 0.8
-              }
-              onChange={(event) =>
-                handleNpcBaseChange(
-                  "detection",
-                  "stopDistance",
-                  event.target.value
-                )
-              }
-            />
-          </div>
-        )}
-
-        <div className="settings-field">
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={
-                selectedNpc.detection?.debug ?? false
-              }
-              onChange={(event) =>
-                updateNpc(selectedNpc.id, {
-                  detection: {
-                    ...selectedNpc.detection,
-                    debug: event.target.checked,
-                  },
-                })
-              }
-            />
-            Debug Log Detection
-          </label>
-        </div>
-
-        <div className="settings-field">
-          <label>Patrol Mode</label>
-
-          <select
-            value={selectedNpc.patrolMode || "loop"}
-            onChange={(event) =>
-              updateNpc(selectedNpc.id, {
-                patrolMode: event.target.value,
-              })
-            }
-          >
-            <option value="loop">
-              Loop (0 - 1 - 2 - 0)
-            </option>
-            <option value="pingpong">
-              Ping-Pong (0 - 1 - 2 - 1 - 0)
-            </option>
-          </select>
-        </div>
-
-        {movementMode === "patrol" && (
-          <div style={{ marginTop: "10px" }}>
-            <button
-              type="button"
-              onClick={() =>
-                updateNpc(selectedNpc.id, {
-                  isPatrolling: !(
-                    selectedNpc.isPatrolling ?? true
-                  ),
-                })
-              }
-              style={{
-                width: "100%",
-                padding: "8px",
-                backgroundColor:
-                  selectedNpc.isPatrolling ?? true
-                    ? "#f59e0b"
-                    : "#3b82f6",
-                color: "white",
-                fontWeight: "bold",
-                border: "none",
-                borderRadius: "4px",
-                cursor: "pointer",
-              }}
-            >
-              {selectedNpc.isPatrolling ?? true
-                ? "⏸️ Pause Patrol"
-                : "▶️ Start Patrol"}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {movementMode === "patrol" && (
-        <>
-          <div className="section-title">
-            Patrol Waypoints
-          </div>
-
-          <div className="waypoint-actions-header">
-            <button
-              type="button"
-              className={`btn-action ${
-                placingWaypointForNpcId === selectedNpc.id
-                  ? "active"
-                  : ""
-              }`}
-              onClick={() =>
-                setPlacingWaypointForNpcId(
-                  placingWaypointForNpcId ===
-                    selectedNpc.id
-                    ? null
-                    : selectedNpc.id
-                )
-              }
-            >
-              {placingWaypointForNpcId === selectedNpc.id
-                ? "Cancel Placement"
-                : "➕ Click Map to Add Waypoint"}
-            </button>
-          </div>
-
-          <div className="waypoints-list">
-            {waypoints.length === 0 ? (
-              <div className="no-waypoints">
-                No waypoints defined. Click the map to
-                place waypoints.
-              </div>
-            ) : (
-              waypoints.map((waypoint, index) => {
-                const isSelected =
-                  selectedWaypointIndex === index;
-
-                const isCurrentTarget =
-                  selectedNpc.currentWaypointIndex ===
-                  index;
-
-                const waypointPosition =
-                  getWaypointPos(waypoint);
-
-                const xValue =
-                  waypointPosition[0] ?? 0;
-
-                const yValue =
-                  waypointPosition[1] ?? 0;
-
-                const zValue =
-                  waypointPosition[2] ?? 0;
-
-                const waitTimeValue =
-                  getWaypointWaitTime(
-                    waypoint,
-                    selectedNpc.movement?.waitTime ?? 0
-                  );
-
-                return (
-                  <div
-                    key={index}
-                    className={`waypoint-item ${
-                      isSelected ? "selected" : ""
-                    } ${
-                      isCurrentTarget
-                        ? "current-target"
-                        : ""
-                    }`}
-                    onClick={() =>
-                      setSelectedWaypointIndex(index)
-                    }
-                  >
-                    <div className="waypoint-header">
-                      <span className="waypoint-number">
-                        #{index + 1}
-                      </span>
-
-                      {isCurrentTarget && (
-                        <span className="target-badge">
-                          Target
-                        </span>
-                      )}
-
-                      <div className="waypoint-item-controls">
-                        <button
-                          type="button"
-                          disabled={index === 0}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            moveWaypoint(index, "up");
-                          }}
-                          title="Move Up"
-                        >
-                          ▲
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={
-                            index ===
-                            waypoints.length - 1
-                          }
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            moveWaypoint(index, "down");
-                          }}
-                          title="Move Down"
-                        >
-                          ▼
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            duplicateWaypoint(index);
-                          }}
-                          title="Duplicate"
-                        >
-                          📋
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setAsCurrentTarget(index);
-                          }}
-                          title="Set as Active Target"
-                        >
-                          🎯
-                        </button>
-
-                        <button
-                          type="button"
-                          className="btn-danger"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            deleteWaypoint(index);
-                          }}
-                          title="Delete"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </div>
-
-                    {isSelected && (
-                      <div
-                        className="waypoint-details"
-                        onClick={(event) =>
-                          event.stopPropagation()
-                        }
-                      >
-                        <div className="waypoint-coordinates">
-                          <div className="coord-input-group">
-                            <label>X</label>
-
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={Number(
-                                xValue
-                              ).toFixed(2)}
-                              onChange={(event) =>
-                                handleWaypointChange(
-                                  index,
-                                  0,
-                                  event.target.value
-                                )
-                              }
-                            />
-                          </div>
-
-                          <div className="coord-input-group">
-                            <label>Y (Height)</label>
-
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={Number(
-                                yValue
-                              ).toFixed(2)}
-                              onChange={(event) =>
-                                handleWaypointChange(
-                                  index,
-                                  1,
-                                  event.target.value
-                                )
-                              }
-                            />
-                          </div>
-
-                          <div className="coord-input-group">
-                            <label>Z</label>
-
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={Number(
-                                zValue
-                              ).toFixed(2)}
-                              onChange={(event) =>
-                                handleWaypointChange(
-                                  index,
-                                  2,
-                                  event.target.value
-                                )
-                              }
-                            />
-                          </div>
-                        </div>
-
-                        <div className="settings-field waypoint-wait-field">
-                          <label>
-                            Wait Time at this Node (sec)
-                          </label>
-
-                          <input
-                            type="number"
-                            step="0.5"
-                            min="0"
-                            value={waitTimeValue}
-                            onChange={(event) =>
-                              handleWaypointWaitTimeChange(
-                                index,
-                                event.target.value
-                              )
-                            }
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </>
-      )}
-
-      <div className="section-title">
-        Dialogue Tree
-      </div>
+      <div className="section-title">Dialogue Tree</div>
 
       <div className="dialogue-editor">
-        <div className="dialogue-toolbar">
-          <div className="settings-field dialogue-node-selector">
-            <label>Selected Node</label>
+        <div className="dialogue-editor-header">
+          <div className="settings-field talker-identity">
+            <label>Dialogue Speakers Sequence</label>
 
-            <select
-              value={activeDialogueNodeId}
-              onChange={(event) =>
-                setSelectedDialogueNodeId(
-                  event.target.value
-                )
-              }
-            >
-              {dialogueNodeIds.map((nodeId) => (
-                <option key={nodeId} value={nodeId}>
-                  {nodeId}
-                  {dialogue.startNodeId === nodeId
-                    ? " (Start)"
-                    : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            type="button"
-            className="dialogue-primary-button"
-            onClick={addDialogueNode}
-          >
-            + New Node
-          </button>
-        </div>
-
-        {activeDialogueNode && (
-          <div className="dialogue-node-card">
-            <div className="dialogue-node-header">
-              <span>
-                Node:{" "}
-                <strong>{activeDialogueNodeId}</strong>
-              </span>
-
-              {dialogue.startNodeId ===
-                activeDialogueNodeId && (
-                <span className="dialogue-start-badge">
-                  Start Node
-                </span>
-              )}
-            </div>
-
-            <div className="dialogue-node-buttons">
-              <button
-                type="button"
-                onClick={() =>
-                  setDialogueStartNode(
-                    activeDialogueNodeId
-                  )
-                }
-                disabled={
-                  dialogue.startNodeId ===
-                  activeDialogueNodeId
-                }
-              >
-                🏁 Set as Start
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  duplicateDialogueNode(
-                    activeDialogueNodeId
-                  )
-                }
-              >
-                📋 Duplicate
-              </button>
-
-              <button
-                type="button"
-                className="dialogue-danger-button"
-                onClick={() =>
-                  deleteDialogueNode(
-                    activeDialogueNodeId
-                  )
-                }
-                disabled={dialogueNodeIds.length <= 1}
-              >
-                🗑️ Delete Node
-              </button>
-            </div>
-
-            <div className="settings-field">
-              <label>Node ID</label>
-
-              <input
-                key={activeDialogueNodeId}
-                type="text"
-                defaultValue={activeDialogueNodeId}
-                onBlur={(event) =>
-                  renameDialogueNode(
-                    activeDialogueNodeId,
-                    event.target.value
-                  )
-                }
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.currentTarget.blur();
-                  }
-                }}
-              />
-
-              <small className="dialogue-help-text">
-                Node IDs must be unique. Press Enter or
-                click outside to rename.
-              </small>
-            </div>
-
-            <div className="settings-field">
-              <label>NPC Dialogue Text</label>
-
-              <textarea
-                value={activeDialogueNode.text || ""}
-                placeholder="What does this NPC say?"
-                rows={4}
-                onChange={(event) =>
-                  updateDialogueNode(
-                    activeDialogueNodeId,
-                    {
-                      text: event.target.value,
-                    }
-                  )
-                }
-              />
-            </div>
-
-            <DialogueActionList
-  title="On Enter Actions"
-  actions={activeDialogueNode.onEnter}
-  allNpcs={allNpcs}
-  selectedNpcId={selectedNpcId}
-  onChange={(actions) =>
-    updateDialogueNode(activeDialogueNodeId, {
-      onEnter: actions,
-    })
-  }
-/>
-
-
-            <div className="dialogue-choices-header">
-              <span>Player Choices</span>
-
-              <button
-                type="button"
-                className="dialogue-primary-button"
-                onClick={() =>
-                  addDialogueChoice(
-                    activeDialogueNodeId
-                  )
-                }
-              >
-                + Choice
-              </button>
-            </div>
-
-            {activeDialogueNode.choices.length === 0 ? (
-              <div className="dialogue-empty">
-                This node has no player choices. The
-                dialogue will end after displaying the
-                node unless your runtime provides a
-                continue action.
+            {talkerNames.length === 0 ? (
+              <div className="dialogue-empty-small">
+                No speakers defined. Add one below.
               </div>
             ) : (
-              <div className="dialogue-choice-list">
-                {activeDialogueNode.choices.map(
-                  (choice, choiceIndex) => (
-                    <div
-                      key={
-                        choice.id ||
-                        `${activeDialogueNodeId}_${choiceIndex}`
-                      }
-                      className="dialogue-choice-card"
-                    >
-                      <div className="dialogue-choice-header">
-                        <span>
-                          Choice #{choiceIndex + 1}
-                        </span>
-
-                        <div className="dialogue-choice-controls">
-                          <button
-                            type="button"
-                            disabled={choiceIndex === 0}
-                            onClick={() =>
-                              moveDialogueChoice(
-                                activeDialogueNodeId,
-                                choiceIndex,
-                                "up"
-                              )
-                            }
-                          >
-                            ▲
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={
-                              choiceIndex ===
-                              activeDialogueNode.choices
-                                .length -
-                                1
-                            }
-                            onClick={() =>
-                              moveDialogueChoice(
-                                activeDialogueNodeId,
-                                choiceIndex,
-                                "down"
-                              )
-                            }
-                          >
-                            ▼
-                          </button>
-
-                          <button
-                            type="button"
-                            className="dialogue-delete-button"
-                            onClick={() =>
-                              deleteDialogueChoice(
-                                activeDialogueNodeId,
-                                choiceIndex
-                              )
-                            }
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="settings-field">
-                        <label>Player Response</label>
-
-                        <input
-                          type="text"
-                          value={choice.text || ""}
-                          placeholder="Player response text"
-                          onChange={(event) =>
-                            updateDialogueChoice(
-                              activeDialogueNodeId,
-                              choiceIndex,
-                              {
-                                text: event.target.value,
-                              }
-                            )
-                          }
-                        />
-                      </div>
-
-                      <div className="settings-field">
-                        <label>
-                          Continue to Node
-                        </label>
-
-                        <select
-                          value={
-                            choice.nextNodeId || ""
-                          }
-                          onChange={(event) =>
-                            updateDialogueChoice(
-                              activeDialogueNodeId,
-                              choiceIndex,
-                              {
-                                nextNodeId:
-                                  event.target.value ||
-                                  null,
-                              }
-                            )
-                          }
-                        >
-                          <option value="">
-                            End Dialogue
-                          </option>
-
-                          {dialogueNodeIds.map(
-                            (nodeId) => (
-                              <option
-                                key={nodeId}
-                                value={nodeId}
-                              >
-                                {nodeId}
-                                {nodeId ===
-                                activeDialogueNodeId
-                                  ? " (Current)"
-                                  : ""}
-                              </option>
-                            )
-                          )}
-                        </select>
-                      </div>
-
-                     <DialogueActionList
-  title="Choice Actions"
-  actions={choice.actions}
-  allNpcs={allNpcs}
-  selectedNpcId={selectedNpcId}
-  onChange={(actions) =>
-    updateDialogueChoice(activeDialogueNodeId, choiceIndex, {
-      actions,
-    })
-  }
-/>
-
+              <div className="speaker-sequence-list">
+                {talkerNames.map((speaker, index) => (
+                  <div key={index} className="speaker-sequence-item">
+                    <span className="speaker-index">#{index + 1}</span>
+                    <input
+                      type="text"
+                      value={speaker}
+                      placeholder={`Speaker ${index + 1}`}
+                      onChange={(e) => updateSpeakerNameAt(index, e.target.value)}
+                      onKeyDown={handleInputKeyDown}
+                      className="talker-name-input speaker-sequence-input"
+                    />
+                    <div className="speaker-sequence-controls">
+                      <button
+                        type="button"
+                        onClick={() => moveSpeakerName(index, "up")}
+                        disabled={index === 0}
+                        title="Move Up"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveSpeakerName(index, "down")}
+                        disabled={index === talkerNames.length - 1}
+                        title="Move Down"
+                      >
+                        ▼
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-delete"
+                        onClick={() => removeSpeakerName(index)}
+                        title="Remove"
+                      >
+                        ✕
+                      </button>
                     </div>
-                  )
-                )}
+                  </div>
+                ))}
               </div>
             )}
 
-            <DialogueActionList
-  title="On Exit Actions"
-  actions={activeDialogueNode.onExit}
-  allNpcs={allNpcs}
-  selectedNpcId={selectedNpcId}
-  onChange={(actions) =>
-    updateDialogueNode(activeDialogueNodeId, {
-      onExit: actions,
-    })
-  }
-/>
-
+            <div className="add-speaker-row">
+              <input
+                type="text"
+                value={newSpeakerName}
+                placeholder="New talker identity..."
+                onChange={(e) => setNewSpeakerName(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addSpeakerName();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="dialogue-primary-button add-speaker-btn"
+                onClick={addSpeakerName}
+              >
+                Add Speaker
+              </button>
+            </div>
           </div>
-        )}
+        </div>
+
+        <div className="dialogue-editor-body">
+          <div className="dialogue-toolbar">
+            <div className="settings-field dialogue-node-selector">
+              <label>Selected Node</label>
+              <select
+                value={activeDialogueNodeId}
+                onChange={(event) => setSelectedDialogueNodeId(event.target.value)}
+              >
+                {dialogueNodeIds.map((nodeId) => (
+                  <option key={nodeId} value={nodeId}>
+                    {nodeId}
+                    {dialogue.startNodeId === nodeId ? " (Start)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              type="button"
+              className="dialogue-primary-button"
+              onClick={addDialogueNode}
+            >
+              + New Node
+            </button>
+          </div>
+
+          {rawActiveDialogueNode && (
+            <div className="node-speaker-assignment">
+              <label>Active Speaker for this Node:</label>
+              <select
+                value={rawActiveDialogueNode.speakerName || ""}
+                onChange={(e) => handleSpeakerChange(e.target.value)}
+              >
+                <option value="">-- Use Default NPC --</option>
+                {talkerNames.map((name, idx) => (
+                  <option key={idx} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {activeDialogueNode && (
+            <DialogueNodeEditor
+              dialogue={dialogue}
+              activeDialogueNode={activeDialogueNode}
+              activeDialogueNodeId={activeDialogueNodeId}
+              dialogueNodeIds={dialogueNodeIds}
+              selectedNpcId={selectedNpcId}
+              allNpcs={allNpcs}
+              setDialogueStartNode={setDialogueStartNode}
+              duplicateDialogueNode={duplicateDialogueNode}
+              deleteDialogueNode={deleteDialogueNode}
+              renameDialogueNode={renameDialogueNode}
+              updateDialogueNode={updateDialogueNode}
+              addDialogueChoice={addDialogueChoice}
+              updateDialogueChoice={updateDialogueChoice}
+              deleteDialogueChoice={deleteDialogueChoice}
+              moveDialogueChoice={moveDialogueChoice}
+            />
+          )}
+        </div>
       </div>
 
       <style jsx>{`
@@ -2013,6 +1325,12 @@ export default function NPCInspectorPanel({
         .checkbox-label input {
           width: 16px;
           height: 16px;
+        }
+
+        .compact-checkbox-label {
+          margin-top: 2px;
+          font-size: 10px;
+          color: #475569;
         }
 
         .section-title {
@@ -2189,6 +1507,143 @@ export default function NPCInspectorPanel({
           border: 1px solid #cbd5e0;
           border-radius: 6px;
           background: #f8fafc;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .dialogue-editor-header {
+          padding-bottom: 10px;
+          border-bottom: 1px dashed #cbd5e0;
+        }
+
+        .talker-name-input {
+          font-weight: bold;
+          color: #2563eb !important;
+          background: #eff6ff !important;
+          border: 1px solid #bfdbfe !important;
+        }
+
+        .speaker-sequence-list {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          margin-bottom: 8px;
+        }
+
+        .speaker-sequence-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          background: #ffffff;
+          padding: 4px 8px;
+          border-radius: 4px;
+          border: 1px solid #e2e8f0;
+        }
+
+        .speaker-index {
+          font-size: 11px;
+          color: #64748b;
+          font-weight: bold;
+          min-width: 20px;
+        }
+
+        .speaker-sequence-input {
+          flex: 1;
+          height: 28px;
+          padding: 2px 6px !important;
+          font-size: 12px !important;
+        }
+
+        .speaker-sequence-controls {
+          display: flex;
+          gap: 3px;
+        }
+
+        .speaker-sequence-controls button {
+          height: 26px;
+          padding: 0 6px;
+          font-size: 9px;
+          background: #f1f5f9;
+          border: 1px solid #cbd5e0;
+          border-radius: 3px;
+          cursor: pointer;
+          color: #475569;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .speaker-sequence-controls button:hover:not(:disabled) {
+          background: #e2e8f0;
+        }
+
+        .speaker-sequence-controls button:disabled {
+          opacity: 0.3;
+          cursor: not-allowed;
+        }
+
+        .speaker-sequence-controls button.btn-delete {
+          color: #ef4444;
+          background: #fee2e2;
+          border-color: #fecaca;
+        }
+
+        .speaker-sequence-controls button.btn-delete:hover {
+          background: #fca5a5;
+        }
+
+        .add-speaker-row {
+          display: flex;
+          gap: 8px;
+          margin-top: 6px;
+        }
+
+        .add-speaker-row input {
+          flex: 1;
+          height: 32px;
+          font-size: 12px;
+        }
+
+        .add-speaker-btn {
+          padding: 0 12px !important;
+          height: 32px;
+          font-size: 11px !important;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .node-speaker-assignment {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          background: #f1f5f9;
+          padding: 8px 10px;
+          border-radius: 5px;
+          border: 1px solid #cbd5e0;
+          margin-bottom: 10px;
+        }
+
+        .node-speaker-assignment label {
+          font-size: 11px;
+          font-weight: bold;
+          color: #334155;
+        }
+
+        .node-speaker-assignment select {
+          flex: 1;
+          height: 28px;
+          padding: 2px 6px;
+          font-size: 12px;
+          border-radius: 4px;
+          border: 1px solid #cbd5e0;
+          background: #fff;
+        }
+
+        .dialogue-editor-body {
+          display: flex;
+          flex-direction: column;
         }
 
         .dialogue-toolbar {
@@ -2281,10 +1736,27 @@ export default function NPCInspectorPanel({
           color: #dc2626;
         }
 
+        .dialogue-node-buttons button.btn-danger {
+          background: #fee2e2;
+          color: #dc2626;
+          border-color: #fecaca;
+        }
+
         .dialogue-help-text {
           margin: 3px 0 8px;
           color: #64748b;
           font-size: 9px;
+          line-height: 1.4;
+        }
+
+        .dialogue-inline-note {
+          padding: 6px 7px;
+          border: 1px dashed #cbd5e0;
+          border-radius: 4px;
+          background: #f8fafc;
+          color: #64748b;
+          font-size: 9px;
+          line-height: 1.4;
         }
 
         .dialogue-choices-header,
@@ -2411,6 +1883,54 @@ export default function NPCInspectorPanel({
           font-size: 10px;
         }
 
+        .dialogue-waypoint-block {
+          border: 1px solid #dbe3ee;
+          border-radius: 5px;
+          padding: 6px;
+          background: #fff;
+        }
+
+        .dialogue-waypoint-block-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          margin-bottom: 6px;
+          color: #334155;
+          font-size: 10px;
+          font-weight: bold;
+        }
+
+        .dialogue-waypoint-editor {
+          border-top: 1px solid #e2e8f0;
+          padding-top: 6px;
+          margin-top: 6px;
+        }
+
+        .dialogue-waypoint-editor:first-of-type {
+          border-top: none;
+          padding-top: 0;
+          margin-top: 0;
+        }
+
+        .dialogue-waypoint-editor-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          margin-bottom: 6px;
+          color: #475569;
+          font-size: 10px;
+          font-weight: bold;
+        }
+
+        .dialogue-waypoint-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 6px;
+          margin-bottom: 6px;
+        }
+
         .dialogue-empty,
         .dialogue-empty-small {
           color: #64748b;
@@ -2435,4 +1955,3 @@ export default function NPCInspectorPanel({
     </div>
   );
 }
-

@@ -88,15 +88,20 @@ const normalizeWaypoint = (waypoint, fallbackWaitTime = 0) => {
   };
 };
 
-// Normalizes structured dialogue object
+// Normalizes structured dialogue object with Multi-Speaker compatibility
 const normalizeNpcDialogue = (dialogue) => {
   const defaultDialogue = {
     startNodeId: "root",
     nodes: {
       root: {
         id: "root",
-        text: "Hello traveler!",
-        choices: [],
+        speakerName: "NPC",
+        speakerData: {
+          "NPC": {
+            text: "Hello traveler!",
+            choices: [],
+          }
+        },
         onEnter: [],
         onExit: [],
       },
@@ -109,7 +114,7 @@ const normalizeNpcDialogue = (dialogue) => {
 
   // Handle case where dialogue is sent as a string (legacy data or quick set)
   if (typeof dialogue === "string") {
-    defaultDialogue.nodes.root.text = dialogue || "Hello traveler!";
+    defaultDialogue.nodes.root.speakerData["NPC"].text = dialogue || "Hello traveler!";
     return defaultDialogue;
   }
 
@@ -120,18 +125,51 @@ const normalizeNpcDialogue = (dialogue) => {
   Object.keys(nodes).forEach((nodeId) => {
     const node = nodes[nodeId];
     if (node && typeof node === "object") {
-      const choices = Array.isArray(node.choices)
-        ? node.choices.map((choice) => ({
-            text: typeof choice.text === "string" ? choice.text : "",
-            nextNodeId: typeof choice.nextNodeId === "string" ? choice.nextNodeId : null,
-            actions: Array.isArray(choice.actions) ? choice.actions : [],
-          }))
-        : [];
+      const currentSpeaker = node.speakerName || "NPC";
+      const speakerData = {};
+
+      if (node.speakerData && typeof node.speakerData === "object") {
+        Object.keys(node.speakerData).forEach((spKey) => {
+          const spData = node.speakerData[spKey];
+          if (spData && typeof spData === "object") {
+            const choices = Array.isArray(spData.choices)
+              ? spData.choices.map((choice) => ({
+                  id: choice.id || Math.random().toString(36).substr(2, 9),
+                  text: typeof choice.text === "string" ? choice.text : "",
+                  nextNodeId: typeof choice.nextNodeId === "string" ? choice.nextNodeId : null,
+                  actions: Array.isArray(choice.actions) ? choice.actions : [],
+                }))
+              : [];
+
+            speakerData[spKey] = {
+              text: typeof spData.text === "string" ? spData.text : "",
+              choices,
+            };
+          }
+        });
+      }
+
+      // Legacy fallback: convert flat node.text and node.choices to the default speaker key
+      if (Object.keys(speakerData).length === 0) {
+        const legacyChoices = Array.isArray(node.choices)
+          ? node.choices.map((choice) => ({
+              id: choice.id || Math.random().toString(36).substr(2, 9),
+              text: typeof choice.text === "string" ? choice.text : "",
+              nextNodeId: typeof choice.nextNodeId === "string" ? choice.nextNodeId : null,
+              actions: Array.isArray(choice.actions) ? choice.actions : [],
+            }))
+          : [];
+
+        speakerData[currentSpeaker] = {
+          text: typeof node.text === "string" ? node.text : "",
+          choices: legacyChoices,
+        };
+      }
 
       normalizedNodes[nodeId] = {
         id: nodeId,
-        text: typeof node.text === "string" ? node.text : "",
-        choices,
+        speakerName: currentSpeaker,
+        speakerData: speakerData,
         onEnter: Array.isArray(node.onEnter) ? node.onEnter : [],
         onExit: Array.isArray(node.onExit) ? node.onExit : [],
       };
@@ -696,7 +734,7 @@ app.delete("/api/objects/:id", async (req, res) => {
     });
 
     res.json({
-  message: "Object deleted",
+      message: "Object deleted",
       id,
     });
   } catch (err) {

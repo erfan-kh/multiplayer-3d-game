@@ -7,8 +7,13 @@ function createDefaultDialogue() {
     nodes: {
       root: {
         id: "root",
-        text: "Hello traveler!",
-        choices: [],
+        speakerName: "NPC",
+        speakerData: {
+          "NPC": {
+            text: "Hello traveler!",
+            choices: [],
+          }
+        },
         onEnter: [],
         onExit: [],
       },

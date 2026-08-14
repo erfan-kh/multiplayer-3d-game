@@ -121,6 +121,7 @@ export default function EditorCanvas(props) {
 
 
       <EditorScene
+        closeDialogue={props.closeDialogue}
         {...props}
         objectRefs={objectRefs}   /* ✅ pass rigidbody refs down */
         isVerticalDrag={isVerticalDrag}
@@ -171,3 +172,5 @@ export default function EditorCanvas(props) {
     </Canvas>
   );
 }
+
+

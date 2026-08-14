@@ -5,6 +5,7 @@
 export const getWaypointPos = (waypoint) => {
   if (Array.isArray(waypoint)) return waypoint;
   if (waypoint && Array.isArray(waypoint.pos)) return waypoint.pos;
+  if (waypoint && Array.isArray(waypoint.position)) return waypoint.position;
   return null;
 };
 

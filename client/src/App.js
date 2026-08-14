@@ -389,6 +389,10 @@ export default function App() {
     [handleJoystickEnd]
   );
 
+  const closeDialogue = useCallback(() => {
+    setActiveDialogueNpcId(null);
+  }, []);
+
   const handleMapClick = useCallback(
     (event) => {
       if (!event?.point) return;
@@ -529,6 +533,7 @@ export default function App() {
       />
 
       <EditorCanvas
+        closeDialogue={closeDialogue}
         placedObjects={placedObjects}
         setPlacedObjects={setPlacedObjects}
         selectedObjectId={selectedObjectId}
@@ -688,3 +693,6 @@ export default function App() {
     </div>
   );
 }
+
+
+
